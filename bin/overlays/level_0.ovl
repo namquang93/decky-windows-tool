@@ -1,0 +1,127 @@
+[Master]
+Implementation=2
+FontFace=Unispace
+FontHeight=-9
+FontWeight=400
+ZoomRatio=2
+[Settings]
+Name=
+EnvVars=
+RefreshPeriod=1000
+EmbeddedImage=
+PingAddr=
+[General]
+Sources=15
+Tables=0
+Layers=0
+[Source0]
+Name=CPU usage
+Units=%
+Format=
+Formula=
+Provider=HAL
+ID=CPU usage
+[Source1]
+Name=RAM usage
+Units=GB
+Format=%0.1f
+Formula=x/1024
+Provider=HAL
+ID=RAM usage
+[Source2]
+Name=Charge Level
+Units=%
+Format=
+Formula=
+Provider=HwInfo
+SensorInst=0
+ReadingType=8
+ReadingName=Charge Level
+[Source3]
+Name=Battery Voltage
+Units=V
+Format=%0.1f
+Formula=
+Provider=HwInfo
+SensorInst=0
+ReadingType=2
+ReadingName=Battery Voltage
+[Source4]
+Name=Estimated Remaining Time
+Units=Hours
+Format=%0.2f
+Formula=x/60
+Provider=HwInfo
+SensorInst=0
+ReadingType=8
+ReadingName=Estimated Remaining Time
+[Source5]
+Name=GPU1 voltage
+Units=W
+Format=%0.1f
+Formula=x/1000
+Provider=HAL
+ID=GPU1 voltage
+[Source6]
+Name=GPU1 usage
+Units=%
+Format=
+Formula=
+Provider=HAL
+ID=GPU1 usage
+[Source7]
+Name=GPU1 memory usage
+Units=GB
+Format=%0.1f
+Formula=x/1024
+Provider=HAL
+ID=GPU1 memory usage
+[Source8]
+Name=GPU1 power
+Units=W
+Format=%0.1f
+Formula=
+Provider=HAL
+ID=GPU1 power
+[Source9]
+Name=GPU1 clock
+Units=MHz
+Format=
+Formula=
+Provider=HAL
+ID=GPU1 clock
+[Source10]
+Name=RAM usage percent
+Units=%
+Format=
+Formula=
+Provider=HAL
+ID=RAM usage percent
+[Source11]
+Name=GPU1 memory usage percent
+Units=%
+Format=
+Formula=
+Provider=HAL
+ID=GPU1 memory usage percent
+[Source12]
+Name=CPU power
+Units=W
+Format=
+Formula=
+Provider=HAL
+ID=CPU power
+[Source13]
+Name=CPU temperature
+Units=°C
+Format=
+Formula=
+Provider=HAL
+ID=CPU temperature
+[Source14]
+Name=CPU clock
+Units=MHz
+Format=
+Formula=
+Provider=HAL
+ID=CPU clock
