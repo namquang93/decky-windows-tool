@@ -10,6 +10,7 @@ import { callable } from "@decky/api";
 //const serializer = new JsonSerializer();
 
 const set_volume = callable<[number], void>('set_volume');
+const set_muted = callable<[boolean], void>('set_muted');
 const set_brightness = callable<[number], void>('set_brightness');
 const set_osd = callable<[number], void>('set_osd');
 const set_osd_size = callable<[number], void>('set_osd_size');
@@ -23,6 +24,9 @@ const set_cpu_clock_limit = callable<[number], void>('set_cpu_clock_limit');
 export class SystemSetting {
   //@JsonProperty()
   public volume: number;
+
+  //@JsonProperty()
+  public muted: boolean;
 
   //@JsonProperty()
   public brightness: number;
@@ -57,8 +61,15 @@ export class SystemSetting {
   //@JsonProperty()
   public gpuClockLimit: number;
 
+  //@JsonProperty
+  public cpuClock: number;
+
+  //@JsonProperty()
+  public fps: number;
+
   constructor() {
     this.volume = 20;
+    this.muted = false;
     this.brightness = 50;
     this.osd = 0;
     this.osdSize = 1;
@@ -70,11 +81,14 @@ export class SystemSetting {
     this.shouldLimitCPUClock = false;
     this.shouldLimitGPUClock = false;
     this.gpuClockLimit = 800;
+    this.cpuClock = 1000;
+    this.fps = 60;
   }
 
   deepCopy(copyTarget: SystemSetting) {
     // this.overwrite=copyTarget.overwrite;
     this.volume = copyTarget.volume;
+    this.muted = copyTarget.muted;
     this.brightness = copyTarget.brightness;
     this.osd = copyTarget.osd;
     this.osdSize = copyTarget.osdSize;
@@ -86,6 +100,8 @@ export class SystemSetting {
     this.shouldLimitCPUClock = copyTarget.shouldLimitCPUClock;
     this.shouldLimitGPUClock = copyTarget.shouldLimitGPUClock;
     this.gpuClockLimit = copyTarget.gpuClockLimit;
+    this.cpuClock = copyTarget.cpuClock;
+    this.fps = copyTarget.fps;
   }
 }
 
@@ -125,6 +141,24 @@ export class Settings {
 
   static getVolume() {
     return this.instance.system.volume;
+  }
+
+  static getMuted() {
+    return this.instance.system.muted;
+  }
+
+  static setMuted(muted: boolean) {
+    if (this.instance.system.muted != muted) {
+      this.instance.system.muted = muted;
+      set_muted(muted);
+      // Settings.saveSettingsToLocalStorage();
+    }
+  }
+
+  static syncMuted(muted: boolean) {
+    if (this.instance.system.muted != muted) {
+      this.instance.system.muted = muted;
+    }
   }
 
   static setBrightness(brightness: number) {
@@ -363,5 +397,29 @@ export class Settings {
     if (this.instance.system.shouldLimitGPUClock != shouldLimit) {
       this.instance.system.shouldLimitGPUClock = shouldLimit;
     }
+  }
+
+  static syncCPUClock(cpuClock: number) {
+    if (cpuClock == 0){
+      cpuClock = 800;
+    }
+
+    if (this.instance.system.cpuClock != cpuClock) {
+      this.instance.system.cpuClock = cpuClock;
+    }
+  }
+
+  static getCPUClock() {
+    return this.instance.system.cpuClock;
+  }
+
+  static syncFPS(fps: number) {
+    if (this.instance.system.fps != fps) {
+      this.instance.system.fps = fps;
+    }
+  }
+
+  static getFPS() {
+    return this.instance.system.fps;
   }
 }

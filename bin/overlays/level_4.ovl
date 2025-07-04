@@ -13,7 +13,7 @@ PingAddr=
 [General]
 Sources=15
 Tables=0
-Layers=29
+Layers=27
 [Source0]
 Name=CPU usage
 Units=%
@@ -128,7 +128,7 @@ ID=CPU clock
 [Layer0]
 Name=
 Text=CPU
-PositionX=-41
+PositionX=-30
 PositionY=0
 ExtentX=-4
 ExtentY=-1
@@ -148,7 +148,7 @@ BgndColor=81000000
 [Layer2]
 Name=
 Text=GPU
-PositionX=-71
+PositionX=-60
 PositionY=0
 ExtentX=-4
 ExtentY=-1
@@ -158,7 +158,7 @@ BgndColor=80000000
 [Layer3]
 Name=
 Text=RAM
-PositionX=-86
+PositionX=-84
 PositionY=0
 ExtentX=-4
 ExtentY=-1
@@ -168,7 +168,7 @@ BgndColor=80000000
 [Layer4]
 Name=
 Text=%CPU usage%%
-PositionX=-54
+PositionX=-43
 PositionY=0
 ExtentX=-4
 ExtentY=-1
@@ -178,7 +178,7 @@ BgndColor=80000000
 [Layer5]
 Name=
 Text=%GPU1 usage%%
-PositionX=-75
+PositionX=-73
 PositionY=0
 ExtentX=-4
 ExtentY=-1
@@ -188,7 +188,7 @@ BgndColor=80000000
 [Layer6]
 Name=
 Text=%RAM usage%GB
-PositionX=-94
+PositionX=-92
 PositionY=0
 ExtentX=-7
 ExtentY=-1
@@ -198,7 +198,7 @@ BgndColor=80000000
 [Layer7]
 Name=
 Text=%Estimated Remaining Time% Hours
-PositionX=-10
+PositionX=-11
 PositionY=0
 ExtentX=-11
 ExtentY=-1
@@ -208,7 +208,7 @@ BgndColor=81000000
 [Layer8]
 Name=
 Text=%Charge Level%%
-PositionX=-4
+PositionX=-5
 PositionY=0
 ExtentX=-6
 ExtentY=-1
@@ -217,8 +217,8 @@ TextColor=F7F7F7
 BgndColor=81000000
 [Layer9]
 Name=
-Text=%Battery Voltage%W
-PositionX=-21
+Text=%Battery Voltage%V
+PositionX=-22
 PositionY=0
 ExtentX=-6
 ExtentY=-1
@@ -227,8 +227,8 @@ TextColor=F7F7F7
 BgndColor=81000000
 [Layer10]
 Name=
-Text=%GPU1 voltage%W
-PositionX=-79
+Text=%GPU1 power%W
+PositionX=-77
 PositionY=0
 ExtentX=-5
 ExtentY=-1
@@ -239,7 +239,7 @@ BgndColor=80000000
 Name=
 VisibilitySource=CPU power
 Text=%CPU power%W
-PositionX=-63
+PositionX=-52
 PositionY=0
 ExtentX=-6
 ExtentY=-1
@@ -249,7 +249,7 @@ BgndColor=80000000
 [Layer12]
 Name=
 Text=%Framerate%
-PositionX=-120
+PositionX=-118
 PositionY=0
 ExtentX=-4
 ExtentY=-1
@@ -259,7 +259,7 @@ BgndColor=80000000
 [Layer13]
 Name=
 Text=VRAM
-PositionX=-103
+PositionX=-101
 PositionY=0
 ExtentX=-5
 ExtentY=-1
@@ -269,7 +269,7 @@ BgndColor=80000000
 [Layer14]
 Name=
 Text=%GPU1 memory usage%GB
-PositionX=-112
+PositionX=-110
 PositionY=0
 ExtentX=-6
 ExtentY=-1
@@ -280,7 +280,7 @@ BgndColor=80000000
 Name=
 VisibilitySource=CPU temperature
 Text=%CPU temperature%°C
-PositionX=-58
+PositionX=-47
 PositionY=0
 ExtentX=-5
 ExtentY=-1
@@ -289,69 +289,69 @@ TextColor=F7F7F7
 BgndColor=81000000
 [Layer16]
 Name=
-Text=APU
-PositionX=-29
-PositionY=0
-ExtentX=-4
-ExtentY=-1
-ExtentOrigin=0
-TextColor=FE19C1
-BgndColor=81000000
-[Layer17]
-Name=
-Text=%GPU1 power%W
-PositionX=-33
-PositionY=0
-ExtentX=-6
-ExtentY=-1
-ExtentOrigin=0
-TextColor=F7F7F7
-BgndColor=80000000
-[Layer18]
-Name=
 VisibilitySource=CPU clock
 Text=%CPU clock% MHz
-PositionX=-45
+PositionX=-34
 PositionY=0
 ExtentX=-9
 ExtentY=-1
 ExtentOrigin=0
 TextColor=F7F7F7
 BgndColor=80000000
-[Layer19]
+[Layer17]
 Name=
 Text=|
-PositionX=-27
+PositionX=-28
 PositionY=0
 ExtentX=-2
 ExtentY=-1
 ExtentOrigin=0
 TextColor=9200D1
 BgndColor=80000000
-[Layer20]
+[Layer18]
 Name=
 Text=%RAM usage percent%%
-PositionX=-90
+PositionX=-88
 PositionY=0
 ExtentX=-4
 ExtentY=-1
 ExtentOrigin=0
 TextColor=F7F7F7
 BgndColor=80000000
-[Layer21]
+[Layer19]
 Name=
 Text=%GPU1 memory usage percent%%
-PositionX=-108
+PositionX=-106
 PositionY=0
 ExtentX=-4
 ExtentY=-1
 ExtentOrigin=0
 TextColor=F7F7F7
+BgndColor=80000000
+[Layer20]
+Name=
+Text=|
+PositionX=-58
+PositionY=0
+ExtentX=-2
+ExtentY=-1
+ExtentOrigin=0
+TextColor=9200D1
+BgndColor=80000000
+[Layer21]
+Name=
+Text=|
+PositionX=-82
+PositionY=0
+ExtentX=-2
+ExtentY=-1
+ExtentOrigin=0
+TextColor=9200D1
 BgndColor=80000000
 [Layer22]
 Name=
 Text=|
-PositionX=-69
+PositionX=-116
 PositionY=0
 ExtentX=-2
 ExtentY=-1
@@ -361,7 +361,7 @@ BgndColor=80000000
 [Layer23]
 Name=
 Text=|
-PositionX=-84
+PositionX=-99
 PositionY=0
 ExtentX=-2
 ExtentY=-1
@@ -371,7 +371,7 @@ BgndColor=80000000
 [Layer24]
 Name=
 Text=|
-PositionX=-118
+PositionX=-126
 PositionY=0
 ExtentX=-2
 ExtentY=-1
@@ -380,41 +380,22 @@ TextColor=9200D1
 BgndColor=80000000
 [Layer25]
 Name=
-Text=|
-PositionX=-101
-PositionY=0
-ExtentX=-2
-ExtentY=-1
-ExtentOrigin=0
-TextColor=9200D1
-BgndColor=80000000
-[Layer26]
-Name=
-Text=|
-PositionX=-39
-PositionY=0
-ExtentX=-2
-ExtentY=-1
-ExtentOrigin=0
-TextColor=9200D1
-BgndColor=80000000
-[Layer27]
-Name=
-Text=|
-PositionX=-128
-PositionY=0
-ExtentX=-2
-ExtentY=-1
-ExtentOrigin=0
-TextColor=9200D1
-BgndColor=80000000
-[Layer28]
-Name=
 Text=FPS
-PositionX=-124
+PositionX=-122
 PositionY=0
 ExtentX=-4
 ExtentY=-1
 ExtentOrigin=0
 TextColor=FF0000
+BgndColor=80000000
+[Layer26]
+Name=
+VisibilitySource=GPU1 clock
+Text=%GPU1 clock% MHz
+PositionX=-64
+PositionY=0
+ExtentX=-9
+ExtentY=-1
+ExtentOrigin=0
+TextColor=F7F7F7
 BgndColor=80000000
