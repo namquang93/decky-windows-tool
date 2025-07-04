@@ -13,9 +13,20 @@ import math
 import re
 import keyboard
 import winreg
+import mmap
+import struct
+import platform
+import sys
+decky.logger.info(f"Platform {platform.architecture()}")
+decky.logger.info(f"Platform {platform.python_implementation()}")
+decky.logger.info(f"Version {sys.version}")
+import psutil
+from collections import defaultdict
 from ctypes import *
 from ctypes.wintypes import *
 from shutil import copyfile
+from comtypes import CLSCTX_ALL
+from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 
 ryzenadj_lib_path = os.path.dirname(os.path.abspath(__file__))
 os.chdir(ryzenadj_lib_path)
@@ -60,6 +71,9 @@ winreg.CloseKey(rtss_key)
 rtss_lib = cdll.LoadLibrary(os.path.join(rtss_install_dir, "RTSSHooks64.dll"))
 rtss_osd_visible_flag = 1
 rtss_overlay_config_path = os.path.join(rtss_install_dir, "Plugins", "Client", "OverlayEditor.cfg")
+
+# RTSS SHARED MEMORY
+last_dwTime0s = defaultdict(int)
 
 def adjust(field, value):
     function_name = "set_" + field
@@ -115,7 +129,7 @@ def get_property(property_name):
     rtss_get_property_func.restype = BOOL
     
     dw_value = DWORD()
-    dw_size = DWORD(ctypes.sizeof(dw_value))
+    dw_size = DWORD(sizeof(dw_value))
     success = rtss_get_property_func(property_name, byref(dw_value), dw_size)
     # if success:
     #     decky.logger.info(f"Property '{property_name.decode()}' = {dw_value.value}")
@@ -134,7 +148,7 @@ def set_property(property_name, value):
     rtss_set_property_func.restype = BOOL
 
     dw_value = DWORD(value)
-    dw_size = DWORD(ctypes.sizeof(dw_value))
+    dw_size = DWORD(sizeof(dw_value))
     success = rtss_set_property_func(property_name, byref(dw_value), dw_size)
 
     rtss_save_profile_func = rtss_lib.__getattr__("SaveProfile")
@@ -145,7 +159,288 @@ def set_property(property_name, value):
     rtss_update_profile_func.argtypes = []
     rtss_update_profile_func()
 
+def kill_process(process_name):
+    for proc in psutil.process_iter():
+        if proc.name() == process_name:
+            proc.kill()
+            return True
+    return False
+
+def restart_process(process_name):
+    process_path = ""
+    for proc in psutil.process_iter():
+        if proc.name().lower() == f"{process_name}".lower():
+            process_path = proc.exe()
+            proc.kill()
+            decky.logger.info(f"Killed process {process_name}")
+        # else:
+        #     decky.logger.info(f"Process {proc.name()} not {process_name}, skip")
+    if len(process_path) == 0:
+        decky.logger.info(f"Can't find process {process_name}")
+        return False
+    else:
+        try:
+            decky.logger.info(f"Restarting process {process_name} at {process_path}")
+            subprocess.run([process_path], check=True)
+        except subprocess.CalledProcessError as e:
+            decky.logger.info(f"Can't restart process at {process_path}")
+            return False
+        except FileNotFoundError:
+            decky.logger.info(f"Executable at {process_path} not found")
+            return False
+        return True
+
+def is_process_running(process_name):
+    return process_name in (p.name() for p in psutil.process_iter())
+
+def setup_hwinfo():
+    decky.logger.info("[HWiNFO] Setting up")
+    hwinfo_sensors_key_path = r"Software\HWiNFO64\Sensors"
+    hwinfo_sensors_custom_key_path = hwinfo_sensors_key_path + r"\Custom"
+    hwinfo_sensors_custom_decky_key_path = hwinfo_sensors_custom_key_path + r"\Decky Windows Tools"
+    hwinfo_sensors_custom_other0_path = hwinfo_sensors_custom_decky_key_path + r"\Other0"
+    hwinfo_sensors_custom_other1_path = hwinfo_sensors_custom_decky_key_path + r"\Other1"
+    hwinfo_sensors_custom_other2_path = hwinfo_sensors_custom_decky_key_path + r"\Other2"
+    hwinfo_sensors_custom_other3_path = hwinfo_sensors_custom_decky_key_path + r"\Other3"
+
+    try:
+        hwinfo_sensors_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, hwinfo_sensors_key_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+    except FileNotFoundError:
+        decky.logger.error("[HWInfo] Not installed")
+        return
+    
+    restart_hwinfo = False
+    try:
+        enable_vsb, _ = winreg.QueryValueEx(hwinfo_sensors_key, "EnableVSB")
+    except FileNotFoundError:
+        winreg.SetValueEx(hwinfo_sensors_key, "EnableVSB", 0, winreg.REG_DWORD, 1)
+        decky.logger.info("[HWInfo] Add and eanble VSB")
+        enable_vsb = 1
+        restart_hwinfo = True
+    
+    if enable_vsb != 1:
+        winreg.SetValueEx(hwinfo_sensors_key, "EnableVSB", 0, winreg.REG_DWORD, 1)
+        decky.logger.info("[HWInfo] Enable VSB")
+        restart_hwinfo = True
+    else:
+        decky.logger.info("[HWInfo] VSB is already enabled")
+    
+    try:
+        hwinfo_sensors_custom_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_key_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+    except FileNotFoundError:
+        restart_hwinfo = True
+        decky.logger.info("[HWInfo] Create custom sensors")
+        hwinfo_sensors_custom_key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_key_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+
+    # hwinfo_sensors_custom_decky_key
+    try:
+        hwinfo_sensors_custom_decky_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_decky_key_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+    except FileNotFoundError:
+        restart_hwinfo = True
+        decky.logger.info("[HWInfo] Create custom sensors for Decky Windows Tools")
+        hwinfo_sensors_custom_decky_key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_decky_key_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+    
+    try:
+        hwinfo_sensors_custom_other0_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_other0_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+    except FileNotFoundError:
+        restart_hwinfo = True
+        decky.logger.info("[HWInfo] Add custom sensor 0 for Decky Windows Tools")
+        hwinfo_sensors_custom_other0_key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_other0_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+    winreg.SetValueEx(hwinfo_sensors_custom_other0_key, "Name", 0, winreg.REG_SZ, "CPU Clock")
+    winreg.SetValueEx(hwinfo_sensors_custom_other0_key, "Value", 0, winreg.REG_SZ, "max(\"Core 0 Ratio\", \"Core 1 Ratio\", \"Core 2 Ratio\", \"Core 3 Ratio\", \"Core 4 Ratio\", \"Core 5 Ratio\", \"Core 6 Ratio\", \"Core 7 Ratio\") * 100")
+    winreg.SetValueEx(hwinfo_sensors_custom_other0_key, "Unit", 0, winreg.REG_SZ, "Mhz")
+    
+    # try:
+    #     hwinfo_sensors_custom_other1_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_other1_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+    # except FileNotFoundError:
+    #     restart_hwinfo = True
+    #     decky.logger.info("[HWInfo] Add custom sensor 1 for Decky Windows Tools")
+    #     hwinfo_sensors_custom_other1_key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_other1_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+    # winreg.SetValueEx(hwinfo_sensors_custom_other1_key, "Name", 0, winreg.REG_SZ, "CPU Clock")
+    # winreg.SetValueEx(hwinfo_sensors_custom_other1_key, "Value", 0, winreg.REG_SZ, "max(\"Core 0 Clock\", \"Core 1 Clock\", \"Core 2 Clock\", \"Core 3 Clock\", \"Core 4 Clock\", \"Core 5 Clock\", \"Core 6 Clock\", \"Core 7 Clock\")")
+    # winreg.SetValueEx(hwinfo_sensors_custom_other1_key, "Unit", 0, winreg.REG_SZ, "Mhz")
+
+    # try:
+    #     hwinfo_sensors_custom_other2_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_other2_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+    # except FileNotFoundError:
+    #     restart_hwinfo = True
+    #     decky.logger.info("[HWInfo] Add custom sensor 2 for Decky Windows Tools")
+    #     hwinfo_sensors_custom_other2_key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_other2_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+
+    # try:
+    #     hwinfo_sensors_custom_other3_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_other3_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+    # except FileNotFoundError:
+    #     restart_hwinfo = True
+    #     decky.logger.info("[HWInfo] Add custom sensor 3 for Decky Windows Tools")
+    #     hwinfo_sensors_custom_other3_key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_other3_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+    
+    hwinfo_sensors_custom_other0_key.Close()
+    # hwinfo_sensors_custom_other1_key.Close()
+    # hwinfo_sensors_custom_other2_key.Close()
+    # hwinfo_sensors_custom_other3_key.Close()
+    hwinfo_sensors_custom_decky_key.Close()
+    hwinfo_sensors_custom_key.Close()
+    hwinfo_sensors_key.Close()
+
+    if restart_hwinfo:
+        restart_process("HWiNFO64.EXE")
+    else:
+        if is_process_running("HWiNFO64.EXE"):
+            decky.logger.info("[HWInfo] Correctly configred, no need to restart. It's running already")
+        else:
+            try:
+                decky.logger.info("[HWInfo] Correctly configred, no need to restart. But it's not running. Trying to start it.")
+                subprocess.run(["C:\Program Files\HWiNFO64\HWiNFO64.EXE"], check=True)
+                decky.logger.info("[HWInfo] HWiNFO started.")
+            except subprocess.CalledProcessError as e:
+                decky.logger.info("[HWInfo] Can't start HWiNFO. Make sure it's installed.")
+            except FileNotFoundError:
+                decky.logger.info("[HWInfo] HWiNFO not found at C:\Program Files\HWiNFO64\HWiNFO64.EXE. Make sure it's installed.")
+
 class Plugin:
+    async def get_fps(self):
+        global last_dwTime0
+        # Map shared memory
+        mmap_size = 4485160
+        mm = mmap.mmap(0, mmap_size, 'RTSSSharedMemoryV2')
+        
+        # Read header (first 36 bytes)
+        hdr = mm[0:36]
+        (dwSignature, dwVersion, dwAppEntrySize, dwAppArrOffset,
+        dwAppArrSize, dwOSDEntrySize, dwOSDArrOffset,
+        dwOSDArrSize, dwOSDFrame) = struct.unpack('4sLLLLLLLL', hdr)
+        
+        # Adjust mmap size if needed
+        required = dwAppArrOffset + dwAppArrSize * dwAppEntrySize# + 4000
+        if mmap_size < required:
+            # decky.logger.info(f'Adjusting RTSS mm size: {mmap_size} -> {required}')
+            mm = mmap.mmap(0, required, 'RTSSSharedMemoryV2')
+        
+        # Validate signature & version
+        if dwSignature[::-1] not in (b'RTSS', b'SSTR') or dwVersion < 0x00020000:
+            decky.logger.info(f'Invalid RTSS signature/version: {dwSignature} / {dwVersion:x}')
+            return None
+        
+        # decky.logger.info(f'RTSS Shared Memory: Signature={dwSignature} Version={dwVersion:x} AppEntrySize={dwAppEntrySize} AppArrOffset={dwAppArrOffset} AppArrSize={dwAppArrSize} OSDEntrySize={dwOSDEntrySize} OSDArrOffset={dwOSDArrOffset} OSDArrSize={dwOSDArrSize} OSDFrame={dwOSDFrame}')
+    
+        fps = 0
+        
+        # --- FPS loop (existing code) ---
+        for dwEntry in range(dwAppArrSize):
+            off = dwAppArrOffset + dwEntry * dwAppEntrySize
+            stump = mm[off:off + 6*4 + 260]
+            if len(stump) < struct.calcsize('L260sLLLLL'):
+                continue
+            pid, raw_name, flags, t0, t1, frames, ft = struct.unpack('L260sLLLLL', stump)
+            if pid == 0:
+                continue
+            # decky.logger.info(f'[FPS] Pid={pid} RawName={raw_name[:60]} flags={flags:x} t0={t0} t1={t1} frames={frames} ft={ft}')
+            if t0 > 0 and t1 > 0 and frames > 0:
+                last_t0 = last_dwTime0s.get(pid)
+                if t0 != last_t0:
+                    app_fps = 1000 * frames / (t1 - t0)
+                    if app_fps > fps:
+                        fps = app_fps
+                    decky.logger.info(f'[FPS] PID {pid}: {app_fps:.1f}')
+                    last_dwTime0s[pid] = t0
+    
+        # --- GPU clock from OSD entries ---
+        # for i in range(dwOSDArrSize):
+        #     off = dwOSDArrOffset + i * dwOSDEntrySize
+        #     stump = mm[off:off + 256 + 256 + 4096]
+        #     if len(stump) < struct.calcsize('256s256s4096s'):
+        #         decky.logger.info(f'[GPU] OSD entry {i} too short: {len(stump)} bytes')
+        #         continue
+        #     osd, osdOwner, osdEx = struct.unpack('256s256s4096s', stump)
+            
+        #     decky.logger.info(f'[GPU] OSD entry: osd="{osd}" osdOwner={osdOwner} osdEx="{osdEx[:60]}"')
+        
+        decky.logger.info(f"Get FPS: {fps}")
+        return fps
+    
+    # async def get_cpu_clock(self):
+    #     mmap_size = 44
+    #     mm = mmap.mmap(0, mmap_size, 'Global\\HWiNFO_SENS_SM2')
+        
+    #     # Read header (first 44 bytes)
+    #     hdr = mm[0:40]
+    #     (macgic, version, version2, last_update,
+    #     sensor_section_offset, sensor_element_size, sensor_element_count,
+    #     entry_section_offset, entry_element_size, entry_element_count) = struct.unpack('4sLLLLLLLLL', hdr)
+    #     decky.logger.info(f'HWiNFO Shared Memory: Magic={macgic} Version={version:x} Version2={version2:x} LastUpdate={last_update} SensorSectionOffset={sensor_section_offset} SensorElementSize={sensor_element_size} SensorElementCount={sensor_element_count} EntrySectionOffset={entry_section_offset} EntryElementSize={entry_element_size} EntryElementCount={entry_element_count}')
+    #     # total_max_size = mmap_size + sensor_section_offset + sensor_element_size * sensor_element_count
+    #     # total_max_size = mmap_size + entry_section_offset + entry_element_size * entry_element_count
+    #     sensor_size = sensor_section_offset + sensor_element_size * sensor_element_count
+    #     sentry_size = entry_section_offset + entry_element_size * entry_element_count
+    #     total_max_size = mmap_size + sensor_size + sentry_size
+        
+    #     if total_max_size > mm.size():
+    #         decky.logger.info(f'Adjusting HWiNFO mm size: {mm.size()} -> {total_max_size}')
+    #         mm = mmap.mmap(0, total_max_size, 'Global\\HWiNFO_SENS_SM2')
+    #     # for sensor_element in range(sensor_element_count):
+    #     #     off = sensor_section_offset + sensor_element * sensor_element_size
+    #     #     stump = mm[off:off + 4 + 4 + 128 + 128]
+    #     #     if len(stump) < struct.calcsize('LL128s128s'):
+    #     #         continue
+    #     #     id, instance, name_original, name_user = struct.unpack('LL128s128s', stump)
+    #     #     name_original = name_original.decode('utf-8', errors='ignore')
+    #     #     name_user = name_user.decode('utf-8', errors='ignore')
+    #     #     decky.logger.info(f'[CPU] Sensor Element {sensor_element}: ID={id} Instance={instance} NameOriginal="{name_original}" NameUser="{name_user}"')
+        
+    #     for entry_element_index in range(entry_element_count):
+    #         decky.logger.info(f'[CPU] Entry Element {entry_element_index}')
+    #         if entry_element_index <= 7:
+    #             entry_element_size2 = 4 + 4 + 4 + 128 + 128
+    #             entry_element_format = '<LLL128s128s'
+    #         else:
+    #             entry_element_size2 = 4 + 4 + 4 + 128 + 16 + 8 + 8 + 8 + 8 + 128
+    #             entry_element_format = '<LLL128s16sdddd128s'
+    #         off = entry_section_offset + entry_element_index * entry_element_size2
+    #         stump = mm[off:off + entry_element_size2]
+    #         if len(stump) < struct.calcsize(entry_element_format):
+    #             decky.logger.info(f'[CPU] Entry Element {entry_element_index} too short: {len(stump)} bytes, need {struct.calcsize(entry_element_format)} bytes')
+    #             continue
+    #         if entry_element_index <= 7:
+    #             type, sensor_index, id2, name_original2, name_user2 = struct.unpack(entry_element_format, stump)
+    #             unit = b'None'
+    #             value = -1
+    #             value_min = -1
+    #             value_max = -1
+    #             value_avg = -1
+    #         else:
+    #             type, sensor_index, id2, unit, name_original2, value, value_min, value_max, value_avg, name_user2 = struct.unpack(entry_element_format, stump)
+    #             value_min = 1
+    #             value_max = 1
+    #             value_avg = 1
+    #         name_original2 = name_original2.decode('utf-8', errors='ignore')
+    #         name_user2 = name_user2.decode('utf-8', errors='ignore')
+    #         unit = unit.decode('mbcs', errors='ignore')
+    #         decky.logger.info(f'[CPU] Type={type} SensorIndex={sensor_index} ID2={id2}\nNameOriginal="{name_original2}"\nNameUser="{name_user2}"\nUnit="{unit}"\nValue={value}')
+
+    #     return 1000
+    async def get_cpu_clock(self):
+        hwinfo_vsb_key_path = r"Software\HWiNFO64\VSB"
+        try:
+            hwinfo_vsb_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, hwinfo_vsb_key_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+        except FileNotFoundError:
+            decky.logger.info("[HWInfo] Not installed or running")
+            return 1000
+        
+        try:
+            value1, _ = winreg.QueryValueEx(hwinfo_vsb_key, "Value0")
+            cpu_clock_str = str(value1)
+            cpu_clock_str = cpu_clock_str.replace(" Mhz", "")
+            try:
+                cpu_clock = int(cpu_clock_str)
+                decky.logger.info(f"Get CPU clock: {cpu_clock}")
+                return cpu_clock
+            except ValueError:
+                decky.logger.info(f"Get CPU clock: Can't convert {cpu_clock_str} to int")
+        except FileNotFoundError:
+            decky.logger.info("[HWInfo] VSB Value1 for CPU clock not configured")
+
+        return 1000
+    
     # A normal method. It can be called from the TypeScript side using @decky/api.
     async def add(self, left: int, right: int) -> int:
         return left + right
@@ -160,7 +455,7 @@ class Plugin:
     # Asyncio-compatible long-running code, executed in a task when the plugin is loaded
     async def _main(self):
         self.loop = asyncio.get_event_loop()
-        decky.logger.info("Hello World!")
+        setup_hwinfo()
 
     # Function called first during the unload process, utilize this to handle your plugin being stopped, but not
     # completely removed
@@ -188,37 +483,37 @@ class Plugin:
     #     return subprocess.run(command, **kwargs)
 
     async def get_volume(self):
-        exe_path = os.path.join(decky.DECKY_PLUGIN_DIR, "bin", "adjust_get_current_system_volume_vista_plus.exe")
-
-        si = subprocess.STARTUPINFO()
-        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        result = subprocess.run(
-            [exe_path],
-            capture_output=True,
-            text=True,
-            startupinfo=si
-        )
-
-        volume = int(result.stdout.strip())
+        speaker_devices = AudioUtilities.GetSpeakers()
+        speaker_interface = speaker_devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+        volume_info = speaker_interface.QueryInterface(IAudioEndpointVolume)
+        volume = round(volume_info.GetMasterVolumeLevelScalar() * 100)
+        #decky.logger.info(f"Get GetMute: {volume_info.GetMute()}")
         decky.logger.info(f"Get volume: {volume}")
         return volume
 
     async def set_volume(self, volume: int):
-        exe_path = os.path.join(decky.DECKY_PLUGIN_DIR, "bin", "adjust_get_current_system_volume_vista_plus.exe")
-
-        si = subprocess.STARTUPINFO()
-        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        result = subprocess.run(
-            [exe_path, str(volume)],
-            capture_output=True,
-            text=True,
-            startupinfo=si
-        )
-
-        if result.returncode != 0:
-            decky.logger.error(f"Failed to set volume: {result.stderr.strip()}")
+        speaker_devices = AudioUtilities.GetSpeakers()
+        speaker_interface = speaker_devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+        volume_info = speaker_interface.QueryInterface(IAudioEndpointVolume)
+        volume_info.SetMasterVolumeLevelScalar(volume / 100.0, None)
 
         decky.logger.info(f"Set volumne: {volume}")
+
+    async def get_muted(self):
+        speaker_devices = AudioUtilities.GetSpeakers()
+        speaker_interface = speaker_devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+        volume_info = speaker_interface.QueryInterface(IAudioEndpointVolume)
+        mute = volume_info.GetMute()
+        decky.logger.info(f"Get mute: {mute}")
+        return mute
+    
+    async def set_muted(self, mute: bool):
+        speaker_devices = AudioUtilities.GetSpeakers()
+        speaker_interface = speaker_devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+        volume_info = speaker_interface.QueryInterface(IAudioEndpointVolume)
+        volume_info.SetMute(mute, None)
+
+        decky.logger.info(f"Set mute: {mute}")
 
     async def get_brightness(self):
         si = subprocess.STARTUPINFO()
@@ -493,10 +788,10 @@ class Plugin:
         value = line_11.split(":")[-1].strip()
         try:
             decimal_value = int(value, 16)
-            print(f"Decimal value: {decimal_value}")
+            decky.logger.info(f"Decimal value: {decimal_value}")
         except ValueError:
             decimal_value = 80
-            print(f"Invalid hexadecimal string: {value}")
+            decky.logger.info(f"Invalid hexadecimal string: {value}")
 
         decky.logger.info(f"Get epp: {value} decimal: {decimal_value}")
 
@@ -537,10 +832,10 @@ class Plugin:
         value = line_11.split(":")[-1].strip()
         try:
             decimal_value = int(value, 16)
-            print(f"Decimal value: {decimal_value}")
+            decky.logger.info(f"Decimal value: {decimal_value}")
         except ValueError:
             decimal_value = 0
-            print(f"Invalid hexadecimal string: {value}")
+            decky.logger.info(f"Invalid hexadecimal string: {value}")
 
         decky.logger.info(f"Get cpu clock limit: {value} decimal: {decimal_value}")
 
@@ -607,3 +902,4 @@ class Plugin:
         decky.migrate_runtime(
             os.path.join(decky.DECKY_HOME, "template"),
             os.path.join(decky.DECKY_USER_HOME, ".local", "share", "decky-template"))
+        

@@ -3,11 +3,10 @@ import {
   PanelSection,
   PanelSectionRow,
   SliderField,
-  //Dropdown,
   DropdownItem,
   DropdownOption,
   ToggleField,
-  //DropdownItemProps,
+  ProgressBarWithInfo,
   //Navigation,
   staticClasses
 } from "@decky/ui";
@@ -26,8 +25,15 @@ import { FaRegWindowRestore } from "react-icons/fa";
 
 // import logo from "../assets/logo.png";
 
+let cpuMinClock = 800
+let cpuMaxClock = 5100
+let cpuRange = cpuMaxClock - cpuMinClock
+
 let getVolumeFunc = callable<[], number>('get_volume');
 Settings.syncVolume(await getVolumeFunc());
+
+let getMutedFunc = callable<[], boolean>('get_muted');
+Settings.syncMuted(await getMutedFunc());
 
 // Brightness
 let getBrightnessFunc = callable<[], number>('get_brightness');
@@ -69,89 +75,102 @@ let getGPUClockLimitFunc = callable<[], number>('get_gpu_clock');
 Settings.syncGPUClockLimit(await getGPUClockLimitFunc());
 Settings.setShouldLimitGPUClock(false);
 
+let getFPSFunc = callable<[], number>('get_fps');
+Settings.syncFPS(await getFPSFunc())
+
+let getCPUClockFunc = callable<[], number>('get_cpu_clock');
+Settings.syncCPUClock(await getCPUClockFunc())
+
 function Content() {
   // start_syncing_ryzen();
 
-  const [volume, setVolume] = useState<number>(
-    Settings.getVolume()
-  );
-  const [brightness, setBrightness] = useState<number>(
-    Settings.getBrightness()
-  );
-  const [osd, setOSD] = useState<number>(
-    Settings.getOSD()
-  );
-  const [osdSize, setOSDSize] = useState<number>(
-    Settings.getOSDSize()
-  );
-  const [maxTDP, setMaxTDP] = useState<number>(
-    Settings.getMaxTDP()
-  );
-  const [refreshRate, setRefreshRate] = useState<number>(
-    Settings.getRefreshRate()
-  );
-  const [turboBoost, setTurboBoost] = useState<boolean>(
-    Settings.getTurboBoost()
-  );
-  const [epp, setEPP] = useState<number>(
-    Settings.getEPP()
-  );
-  const [shouldLimitCPUClock, setShouldLimitCPUClock] = useState<boolean>(
-    Settings.getShouldLimitCPUClock()
-  );
-  const [cpuClockLimit, setCPUClockLimit] = useState<number>(
-    Settings.getCPUClockLimit()
-  );
-  const [shouldLimitGPUClock, setShouldLimitGPUClock] = useState<boolean>(
-    Settings.getShouldLimitGPUClock()
-  );
-  const [gpuClockLimit, setGPUClockLimit] = useState<number>(
-    Settings.getGPUClockLimit()
-  );
+  const [volume, setVolume] = useState<number>(Settings.getVolume());
+  const [muted, setMuted] = useState<boolean>(Settings.getMuted());
+  const [brightness, setBrightness] = useState<number>(Settings.getBrightness());
+  const [osd, setOSD] = useState<number>(Settings.getOSD());
+  const [osdSize, setOSDSize] = useState<number>(Settings.getOSDSize());
+  const [maxTDP, setMaxTDP] = useState<number>(Settings.getMaxTDP());
+  const [refreshRate, setRefreshRate] = useState<number>(Settings.getRefreshRate());
+  const [turboBoost, setTurboBoost] = useState<boolean>(Settings.getTurboBoost());
+  const [epp, setEPP] = useState<number>(Settings.getEPP());
+  const [shouldLimitCPUClock, setShouldLimitCPUClock] = useState<boolean>(Settings.getShouldLimitCPUClock());
+  const [cpuClockLimit, setCPUClockLimit] = useState<number>(Settings.getCPUClockLimit());
+  const [shouldLimitGPUClock, setShouldLimitGPUClock] = useState<boolean>(Settings.getShouldLimitGPUClock());
+  const [gpuClockLimit, setGPUClockLimit] = useState<number>(Settings.getGPUClockLimit());
+  const [fps, setFPS] = useState<number>(Settings.getFPS());
+  const [fpsRatio, setFPSRatio] = useState<number>(fps * 100 / 60);
+  const [cpuClock, setCPUClock] = useState<number>(Settings.getCPUClock());
+  const [cpuClockRatio, setCPUClockRatio] = useState<number>((cpuClock - cpuMinClock) * 100 / cpuRange)
 
   console.log("[Frontend] Initial values:")
 
+  let userChangedVolume = false;
   useEffect(() => {
     getVolumeFunc().then((value) => {
       console.log("[Frontend] Got volume value:", value);
-      setVolume(value);
-      Settings.syncVolume(value);
+      if (!userChangedVolume) {
+        setVolume(value);
+        Settings.syncVolume(value);
+      }
     });
   }, []);
 
+  let userChangedMuted = false;
+  useEffect(() => {
+    getMutedFunc().then((value) => {
+      console.log("[Frontend] Got muted value:", value);
+      if (!userChangedMuted) {
+        setMuted(value);
+        Settings.syncMuted(value);
+      }
+    });
+  }, []);
+
+  let userChangedBrightness = false;
   useEffect(() => {
     getBrightnessFunc().then((value) => {
-      console.log("[Frontend] Got brightness value:", value);
-      setBrightness(value);
-      Settings.syncBrightness(value);
+      if (!userChangedBrightness) {
+        console.log("[Frontend] Got brightness value:", value);
+        setBrightness(value);
+        Settings.syncBrightness(value);
+      }
     });
   }, []);
 
+  let userChangedOSD = false;
   useEffect(() => {
     getOSDFunc().then((value) => {
-      console.log("[Frontend] Got OSD value:", value);
-      setOSD(value);
-      Settings.syncOSD(value);
+      if (!userChangedOSD) {
+        console.log("[Frontend] Got OSD value:", value);
+        setOSD(value);
+        Settings.syncOSD(value);
+      }
     });
   }, []);
 
+  let userChangedOSDSize = false;
   useEffect(() => {
     getOSDSizeFunc().then((value) => {
-      console.log("[Frontend] Got OSD size value:", value);
-      setOSDSize(value);
-      Settings.syncOSDSize(value);
+      if (!userChangedOSDSize) {
+        console.log("[Frontend] Got OSD size value:", value);
+        setOSDSize(value);
+        Settings.syncOSDSize(value);
+      }
     });
   }, []);
 
+  let userChangedMaxTDP = false;
   useEffect(() => {
     getMaxTDPFunc().then((value) => {
-      console.log("[Frontend] Got TDP value:", value);
-      if (value > 3) {
-        setMaxTDP(value);
-        Settings.syncMaxTDP(value);
-      }
-      else {
-        console.warn("[Frontend] Invalid TDP value received:", value);
+      if (!userChangedMaxTDP) {
+        console.log("[Frontend] Got TDP value:", value);
+        if (value > 3) {
+          setMaxTDP(value);
+          Settings.syncMaxTDP(value);
+        }
+        else {
+          console.warn("[Frontend] Invalid TDP value received:", value);
+        }
       }
     });
   }, []);
@@ -172,11 +191,14 @@ function Content() {
     });
   }, []);
 
+  let userChangedEPP = false;
   useEffect(() => {
     getEPPFunc().then((value) => {
-      console.log("[Frontend] Got EPP value:", value);
-      setEPP(value);
-      Settings.syncEPP(value);
+      if (!userChangedEPP) {
+        console.log("[Frontend] Got EPP value:", value);
+        setEPP(value);
+        Settings.syncEPP(value);
+      }
     });
   }, []);
 
@@ -202,6 +224,24 @@ function Content() {
     });
   }, []);
 
+  useEffect(() => {
+    getFPSFunc().then((value) => {
+      console.log("[Frontend] Got FPS value:", value);
+      setFPS(value);
+      setFPSRatio(value * 100 / 60);
+      Settings.syncFPS(value);
+    });
+  }, []);
+
+  useEffect(() => {
+    getCPUClockFunc().then((value) => {
+      console.log("[Frontend] Got CPU Clock value:", value);
+      setCPUClock(value);
+      setCPUClockRatio((value - cpuMinClock) / cpuRange)
+      Settings.syncCPUClock(value);
+    });
+  }, []);
+
   return [
     <PanelSection title="System">
       <PanelSectionRow>
@@ -213,11 +253,23 @@ function Content() {
           value={volume}
           step={1}
           onChange={(value: number) => {
+            userChangedVolume = true;
             console.log("[Frontend] Volume changed to:", value);
             setVolume(value);
             Settings.setVolume(value);
           }}>
         </SliderField>
+        <ToggleField
+          label={"Mute"}
+          checked={muted}
+          highlightOnFocus={true}
+          onChange={(value: boolean) => {
+            userChangedMuted = true;
+            console.log("[Frontend] Mute changed to:", value);
+            setMuted(value);
+            Settings.setMuted(value);
+          }}>
+        </ToggleField>
       </PanelSectionRow>
       <PanelSectionRow>
         <SliderField
@@ -228,6 +280,7 @@ function Content() {
           value={brightness}
           step={10}
           onChange={(value: number) => {
+            userChangedBrightness = true;
             console.log("[Frontend] Brightness changed to:", value);
             setBrightness(value);
             Settings.setBrightness(value);
@@ -269,6 +322,7 @@ function Content() {
           value={osd}
           step={1}
           onChange={(value: number) => {
+            userChangedOSD = true;
             console.log("[Frontend] OSD changed to:", value);
             setOSD(value);
             Settings.setOSD(value);
@@ -282,6 +336,7 @@ function Content() {
           value={osdSize}
           step={1}
           onChange={(value: number) => {
+            userChangedOSDSize = true;
             console.log("[Frontend] OSD size changed to:", value);
             setOSDSize(value);
             Settings.setOSDSize(value);
@@ -300,11 +355,14 @@ function Content() {
           step={1}
           valueSuffix="W"
           onChange={(value: number) => {
+            userChangedMaxTDP = true;
             console.log("[Frontend] Max TDP changed to:", value);
             setMaxTDP(value);
             Settings.setMaxTDP(value);
           }}>
         </SliderField>
+      </PanelSectionRow>
+      <PanelSectionRow>
         <ToggleField
           label={"Turbo Boost"}
           checked={turboBoost}
@@ -315,6 +373,8 @@ function Content() {
             Settings.setTurboBoost(value);
           }}>
         </ToggleField>
+      </PanelSectionRow>
+      <PanelSectionRow>
         <SliderField
           label={"EPP"}
           showValue={true}
@@ -324,11 +384,14 @@ function Content() {
           step={1}
           valueSuffix="%"
           onChange={(value: number) => {
+            userChangedEPP = true;
             console.log("[Frontend] EPP changed to:", value);
             setEPP(value);
             Settings.setEPP(value);
           }}>
         </SliderField>
+      </PanelSectionRow>
+      <PanelSectionRow>
         <ToggleField
           label={"Limit CPU Clock"}
           checked={shouldLimitCPUClock}
@@ -339,12 +402,14 @@ function Content() {
             Settings.setShouldLimitCPUClock(value);
           }}>
         </ToggleField>
+      </PanelSectionRow>
+      <PanelSectionRow>
         <SliderField
           label={"CPU Clock"}
           showValue={true}
           disabled={!shouldLimitCPUClock}
-          min={800}
-          max={4400}
+          min={cpuMinClock}
+          max={cpuMaxClock}
           value={cpuClockLimit}
           step={100}
           valueSuffix="Mhz"
@@ -354,6 +419,8 @@ function Content() {
             Settings.setCPUClockLimit(value);
           }}>
         </SliderField>
+      </PanelSectionRow>
+      <PanelSectionRow>
         <ToggleField
           label={"Limit GPU Clock"}
           checked={shouldLimitGPUClock}
@@ -364,6 +431,8 @@ function Content() {
             Settings.setShouldLimitGPUClock(value);
           }}>
         </ToggleField>
+      </PanelSectionRow>
+      <PanelSectionRow>
         <SliderField
           label={"GPU Clock"}
           showValue={true}
@@ -379,6 +448,32 @@ function Content() {
             Settings.setGPUClockLimit(value);
           }}>
         </SliderField>
+      </PanelSectionRow>
+    </PanelSection>,
+    <PanelSection title="Monitoring">
+      <PanelSectionRow>
+        <ProgressBarWithInfo
+          label={"CPU Clock"}
+          indeterminate={false}
+          nProgress={cpuClockRatio}
+          nTransitionSec={100000}
+          focusable={true}
+          sTimeRemaining={200000}
+          sOperationText={cpuClock + " Mhz"}
+          >
+        </ProgressBarWithInfo>
+      </PanelSectionRow>
+      <PanelSectionRow>
+        <ProgressBarWithInfo
+          label={"FPS"}
+          indeterminate={false}
+          nProgress={fpsRatio}
+          nTransitionSec={100000}
+          focusable={true}
+          sTimeRemaining={200000}
+          sOperationText={Math.round(fps) + " FPS"}
+          >
+        </ProgressBarWithInfo>
       </PanelSectionRow>
     </PanelSection>
   ];

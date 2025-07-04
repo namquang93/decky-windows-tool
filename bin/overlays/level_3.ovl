@@ -128,7 +128,7 @@ ID=CPU clock
 [Layer0]
 Name=
 Text=CPU
-PositionX=-29
+PositionX=-30
 PositionY=0
 ExtentX=-4
 ExtentY=-1
@@ -148,7 +148,7 @@ BgndColor=81000000
 [Layer2]
 Name=
 Text=GPU
-PositionX=-45
+PositionX=-46
 PositionY=0
 ExtentX=-4
 ExtentY=-1
@@ -158,7 +158,7 @@ BgndColor=80000000
 [Layer3]
 Name=
 Text=RAM
-PositionX=-60
+PositionX=-61
 PositionY=0
 ExtentX=-4
 ExtentY=-1
@@ -168,7 +168,7 @@ BgndColor=80000000
 [Layer4]
 Name=
 Text=%CPU usage%%
-PositionX=-33
+PositionX=-34
 PositionY=0
 ExtentX=-4
 ExtentY=-1
@@ -178,7 +178,7 @@ BgndColor=80000000
 [Layer5]
 Name=
 Text=%GPU1 usage%%
-PositionX=-49
+PositionX=-50
 PositionY=0
 ExtentX=-4
 ExtentY=-1
@@ -188,7 +188,7 @@ BgndColor=80000000
 [Layer6]
 Name=
 Text=%Estimated Remaining Time% Hours
-PositionX=-10
+PositionX=-11
 PositionY=0
 ExtentX=-11
 ExtentY=-1
@@ -198,7 +198,7 @@ BgndColor=81000000
 [Layer7]
 Name=
 Text=%Charge Level%%
-PositionX=-4
+PositionX=-5
 PositionY=0
 ExtentX=-6
 ExtentY=-1
@@ -207,8 +207,8 @@ TextColor=F7F7F7
 BgndColor=81000000
 [Layer8]
 Name=
-Text=%Battery Voltage%W
-PositionX=-21
+Text=%Battery Voltage%V
+PositionX=-22
 PositionY=0
 ExtentX=-6
 ExtentY=-1
@@ -217,8 +217,8 @@ TextColor=F7F7F7
 BgndColor=81000000
 [Layer9]
 Name=
-Text=%GPU1 voltage%W
-PositionX=-53
+Text=%GPU1 power%W
+PositionX=-54
 PositionY=0
 ExtentX=-5
 ExtentY=-1
@@ -229,7 +229,7 @@ BgndColor=80000000
 Name=
 VisibilitySource=CPU power
 Text=%CPU power%W
-PositionX=-37
+PositionX=-38
 PositionY=0
 ExtentX=-6
 ExtentY=-1
@@ -239,7 +239,7 @@ BgndColor=80000000
 [Layer11]
 Name=
 Text=%Framerate%
-PositionX=-81
+PositionX=-82
 PositionY=0
 ExtentX=-4
 ExtentY=-1
@@ -249,7 +249,7 @@ BgndColor=80000000
 [Layer12]
 Name=
 Text=VRAM
-PositionX=-70
+PositionX=-71
 PositionY=0
 ExtentX=-5
 ExtentY=-1
@@ -259,7 +259,7 @@ BgndColor=80000000
 [Layer13]
 Name=
 Text=%RAM usage percent%%
-PositionX=-64
+PositionX=-65
 PositionY=0
 ExtentX=-4
 ExtentY=-1
@@ -269,7 +269,7 @@ BgndColor=80000000
 [Layer14]
 Name=
 Text=%GPU1 memory usage percent%%
-PositionX=-75
+PositionX=-76
 PositionY=0
 ExtentX=-4
 ExtentY=-1
@@ -279,7 +279,7 @@ BgndColor=80000000
 [Layer15]
 Name=
 Text=|
-PositionX=-43
+PositionX=-44
 PositionY=0
 ExtentX=-2
 ExtentY=-1
@@ -289,7 +289,7 @@ BgndColor=80000000
 [Layer16]
 Name=
 Text=|
-PositionX=-58
+PositionX=-59
 PositionY=0
 ExtentX=-2
 ExtentY=-1
@@ -299,7 +299,7 @@ BgndColor=80000000
 [Layer17]
 Name=
 Text=|
-PositionX=-79
+PositionX=-80
 PositionY=0
 ExtentX=-2
 ExtentY=-1
@@ -309,7 +309,7 @@ BgndColor=80000000
 [Layer18]
 Name=
 Text=|
-PositionX=-68
+PositionX=-69
 PositionY=0
 ExtentX=-2
 ExtentY=-1
@@ -319,7 +319,7 @@ BgndColor=80000000
 [Layer19]
 Name=
 Text=|
-PositionX=-27
+PositionX=-28
 PositionY=0
 ExtentX=-2
 ExtentY=-1
@@ -329,7 +329,7 @@ BgndColor=80000000
 [Layer20]
 Name=
 Text=|
-PositionX=-89
+PositionX=-90
 PositionY=0
 ExtentX=-2
 ExtentY=-1
@@ -339,7 +339,7 @@ BgndColor=80000000
 [Layer21]
 Name=
 Text=FPS
-PositionX=-85
+PositionX=-86
 PositionY=0
 ExtentX=-4
 ExtentY=-1
