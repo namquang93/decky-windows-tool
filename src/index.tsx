@@ -25,9 +25,10 @@ import { FaRegWindowRestore } from "react-icons/fa";
 
 // import logo from "../assets/logo.png";
 
-let cpuMinClock = 800
+let cpuMinClock = 100
 let cpuMaxClock = 5100
-let cpuRange = cpuMaxClock - cpuMinClock
+let gpuMinClock = 200
+let gpuMaxClock = 3000
 
 let getVolumeFunc = callable<[], number>('get_volume');
 Settings.syncVolume(await getVolumeFunc());
@@ -48,8 +49,8 @@ let getOSDSizeFunc = callable<[], number>('get_osd_size');
 Settings.syncOSDSize(await getOSDSizeFunc());
 
 // Max TDP
-let getMaxTDPFunc = callable<[], number>('get_max_tdp')
-Settings.syncMaxTDP(await getMaxTDPFunc());
+let getTDPLimitFunc = callable<[boolean], number>('get_tdp_limit')
+Settings.syncTDPLimit(await getTDPLimitFunc(true));
 // const start_syncing_ryzen = callable<[], void>("start_syncing_ryzen");
 
 let getRefreshRatesFunc = callable<[], number[]>('get_refresh_rates');
@@ -71,15 +72,15 @@ if (baseCPUClockLimit != 0) {
 }
 Settings.syncShouldLimitCPUClock(baseCPUClockLimit != 0);
 
-let getGPUClockLimitFunc = callable<[], number>('get_gpu_clock');
+let getGPUClockLimitFunc = callable<[], number>('get_gpu_clock_limit');
 Settings.syncGPUClockLimit(await getGPUClockLimitFunc());
 Settings.setShouldLimitGPUClock(false);
 
-let getFPSFunc = callable<[], number>('get_fps');
-Settings.syncFPS(await getFPSFunc())
+const startSystemLoopFunc = callable<[], void>('start_system_loop');
+await startSystemLoopFunc()
 
-let getCPUClockFunc = callable<[], number>('get_cpu_clock');
-Settings.syncCPUClock(await getCPUClockFunc())
+let minTDP = await callable<[], number>('get_min_tdp')();
+let maxTDP = await callable<[], number>('get_max_tdp')();
 
 function Content() {
   // start_syncing_ryzen();
@@ -89,20 +90,39 @@ function Content() {
   const [brightness, setBrightness] = useState<number>(Settings.getBrightness());
   const [osd, setOSD] = useState<number>(Settings.getOSD());
   const [osdSize, setOSDSize] = useState<number>(Settings.getOSDSize());
-  const [maxTDP, setMaxTDP] = useState<number>(Settings.getMaxTDP());
+  const [autoTDP, setAutoTDP] = useState<boolean>(Settings.getAutoTDP());
+  const [tdpLimit, setTDPLimit] = useState<number>(Settings.getTDPLimit());
   const [refreshRate, setRefreshRate] = useState<number>(Settings.getRefreshRate());
   const [turboBoost, setTurboBoost] = useState<boolean>(Settings.getTurboBoost());
   const [epp, setEPP] = useState<number>(Settings.getEPP());
-  const [shouldLimitCPUClock, setShouldLimitCPUClock] = useState<boolean>(Settings.getShouldLimitCPUClock());
+  const [shouldLimitCPUClock, setShouldLimitCPUClock] = useState<boolean>(Settings.getShouldLimitCPUClock() && !Settings.getAutoTDP());
   const [cpuClockLimit, setCPUClockLimit] = useState<number>(Settings.getCPUClockLimit());
-  const [shouldLimitGPUClock, setShouldLimitGPUClock] = useState<boolean>(Settings.getShouldLimitGPUClock());
+  const [shouldLimitGPUClock, setShouldLimitGPUClock] = useState<boolean>(Settings.getShouldLimitGPUClock() && !Settings.getAutoTDP());
   const [gpuClockLimit, setGPUClockLimit] = useState<number>(Settings.getGPUClockLimit());
-  const [fps, setFPS] = useState<number>(Settings.getFPS());
-  const [fpsRatio, setFPSRatio] = useState<number>(fps * 100 / 60);
-  const [cpuClock, setCPUClock] = useState<number>(Settings.getCPUClock());
-  const [cpuClockRatio, setCPUClockRatio] = useState<number>((cpuClock - cpuMinClock) * 100 / cpuRange)
 
-  console.log("[Frontend] Initial values:")
+  // Listen to HWInfo
+  const [fps, setFPS] = useState<number>(0);
+  const [fpsRatio, setFPSRatio] = useState<number>(fps * 100.0);
+  const [cpuClock, setCPUClock] = useState<number>(1000);
+  const [cpuUsage, setCPUUsage] = useState<number>(50);
+  const [gpuClock, setGPUClock] = useState<number>(500);
+  const [gpuUsage, setGPUUsage] = useState<number>(50);
+  function onSystemStatistics(newFPS: number, newCPUClock: number, newCPUUsage: number, newGPUClock: number, newGPUUsage: number) {
+    console.log("[Frontend] newFPS: ", newFPS, " newCPUClock: ", newCPUClock, " newGPUClock: ", newGPUClock, " new CPUUsage: ", newCPUUsage, " newGPUUsage; ", newGPUUsage);
+    setFPS(newFPS);
+    setFPSRatio(newFPS * 100.0 / 60)
+    setCPUClock(newCPUClock);
+    setCPUUsage(newCPUUsage);
+    setGPUClock(newGPUClock);
+    setGPUUsage(newGPUUsage);
+  };
+
+  useEffect(() => {
+    addEventListener('sytem_statistics_event', onSystemStatistics);
+    return () => {
+      removeEventListener('sytem_statistics_event', onSystemStatistics);
+    }
+  }, []);
 
   let userChangedVolume = false;
   useEffect(() => {
@@ -161,12 +181,12 @@ function Content() {
 
   let userChangedMaxTDP = false;
   useEffect(() => {
-    getMaxTDPFunc().then((value) => {
+    getTDPLimitFunc(true).then((value) => {
       if (!userChangedMaxTDP) {
         console.log("[Frontend] Got TDP value:", value);
         if (value > 3) {
-          setMaxTDP(value);
-          Settings.syncMaxTDP(value);
+          setTDPLimit(value);
+          Settings.syncTDPLimit(value);
         }
         else {
           console.warn("[Frontend] Invalid TDP value received:", value);
@@ -221,24 +241,6 @@ function Content() {
         setGPUClockLimit(value);
         Settings.syncGPUClockLimit(value);
       }
-    });
-  }, []);
-
-  useEffect(() => {
-    getFPSFunc().then((value) => {
-      console.log("[Frontend] Got FPS value:", value);
-      setFPS(value);
-      setFPSRatio(value * 100 / 60);
-      Settings.syncFPS(value);
-    });
-  }, []);
-
-  useEffect(() => {
-    getCPUClockFunc().then((value) => {
-      console.log("[Frontend] Got CPU Clock value:", value);
-      setCPUClock(value);
-      setCPUClockRatio((value - cpuMinClock) / cpuRange)
-      Settings.syncCPUClock(value);
     });
   }, []);
 
@@ -346,19 +348,38 @@ function Content() {
     </PanelSection>,
     <PanelSection title="Performance">
       <PanelSectionRow>
+        <ToggleField
+          label={"Auto TDP"}
+          checked={autoTDP}
+          highlightOnFocus={true}
+          onChange={(value: boolean) => {
+            console.log("[Frontend] Auto TDP changed to:", value);
+            setAutoTDP(value);
+            Settings.setAutoTDP(value);
+            if (value) {
+              setShouldLimitCPUClock(false);
+              Settings.setShouldLimitCPUClock(false);
+              setShouldLimitGPUClock(false);
+              Settings.setShouldLimitGPUClock(false);
+            }
+          }}>
+        </ToggleField>
+      </PanelSectionRow>
+      <PanelSectionRow>
         <SliderField
           label={"Max TDP"}
           showValue={true}
-          min={4}
-          max={28}
-          value={maxTDP}
+          disabled={autoTDP}
+          min={minTDP}
+          max={maxTDP}
+          value={tdpLimit}
           step={1}
           valueSuffix="W"
           onChange={(value: number) => {
             userChangedMaxTDP = true;
             console.log("[Frontend] Max TDP changed to:", value);
-            setMaxTDP(value);
-            Settings.setMaxTDP(value);
+            setTDPLimit(value);
+            Settings.setTDPLimit(value);
           }}>
         </SliderField>
       </PanelSectionRow>
@@ -366,6 +387,7 @@ function Content() {
         <ToggleField
           label={"Turbo Boost"}
           checked={turboBoost}
+          disabled={autoTDP}
           highlightOnFocus={true}
           onChange={(value: boolean) => {
             console.log("[Frontend] Turbo Boost changed to:", value);
@@ -378,6 +400,7 @@ function Content() {
         <SliderField
           label={"EPP"}
           showValue={true}
+          disabled={autoTDP}
           min={0}
           max={100}
           value={epp}
@@ -394,6 +417,7 @@ function Content() {
       <PanelSectionRow>
         <ToggleField
           label={"Limit CPU Clock"}
+          disabled={autoTDP}
           checked={shouldLimitCPUClock}
           highlightOnFocus={true}
           onChange={(value: boolean) => {
@@ -407,7 +431,7 @@ function Content() {
         <SliderField
           label={"CPU Clock"}
           showValue={true}
-          disabled={!shouldLimitCPUClock}
+          disabled={!shouldLimitCPUClock || autoTDP}
           min={cpuMinClock}
           max={cpuMaxClock}
           value={cpuClockLimit}
@@ -424,6 +448,7 @@ function Content() {
         <ToggleField
           label={"Limit GPU Clock"}
           checked={shouldLimitGPUClock}
+          disabled={autoTDP}
           highlightOnFocus={true}
           onChange={(value: boolean) => {
             console.log("[Frontend] Should limit GPU clock changed to:", value);
@@ -436,9 +461,9 @@ function Content() {
         <SliderField
           label={"GPU Clock"}
           showValue={true}
-          disabled={!shouldLimitGPUClock}
-          min={200}
-          max={3000}
+          disabled={!shouldLimitGPUClock || autoTDP}
+          min={gpuMinClock}
+          max={gpuMaxClock}
           value={gpuClockLimit}
           step={100}
           valueSuffix="Mhz"
@@ -453,13 +478,21 @@ function Content() {
     <PanelSection title="Monitoring">
       <PanelSectionRow>
         <ProgressBarWithInfo
-          label={"CPU Clock"}
+          label={"CPU"}
           indeterminate={false}
-          nProgress={cpuClockRatio}
-          nTransitionSec={100000}
+          nProgress={cpuUsage}
           focusable={true}
-          sTimeRemaining={200000}
           sOperationText={cpuClock + " Mhz"}
+          >
+        </ProgressBarWithInfo>
+      </PanelSectionRow>
+      <PanelSectionRow>
+        <ProgressBarWithInfo
+          label={"GPU"}
+          indeterminate={false}
+          nProgress={gpuUsage}
+          focusable={true}
+          sOperationText={gpuClock + " Mhz"}
           >
         </ProgressBarWithInfo>
       </PanelSectionRow>
@@ -468,9 +501,7 @@ function Content() {
           label={"FPS"}
           indeterminate={false}
           nProgress={fpsRatio}
-          nTransitionSec={100000}
           focusable={true}
-          sTimeRemaining={200000}
           sOperationText={Math.round(fps) + " FPS"}
           >
         </ProgressBarWithInfo>

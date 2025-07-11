@@ -1,4 +1,4 @@
-import os
+# type: ignore
 
 # The decky plugin module is located at decky-loader/plugin
 # For easy intellisense checkout the decky-loader code repo
@@ -7,7 +7,7 @@ import decky
 import asyncio
 import os
 import sys
-import time
+# import time
 import subprocess
 import math
 import re
@@ -17,16 +17,31 @@ import mmap
 import struct
 import platform
 import sys
-decky.logger.info(f"Platform {platform.architecture()}")
-decky.logger.info(f"Platform {platform.python_implementation()}")
-decky.logger.info(f"Version {sys.version}")
+import ADLXPybind as ADLX
+# Additional setup for pywin32, similar to pywin32.pth
+if os.path.join(decky.DECKY_PLUGIN_DIR, "py_modules", "win32") not in sys.path:
+    sys.path.append(os.path.join(decky.DECKY_PLUGIN_DIR, "py_modules", "win32"))
+if os.path.join(decky.DECKY_PLUGIN_DIR, "py_modules", "win32", "lib") not in sys.path:
+    sys.path.append(os.path.join(decky.DECKY_PLUGIN_DIR, "py_modules", "win32", "lib"))
+if os.path.join(decky.DECKY_PLUGIN_DIR, "py_modules", "Pythonwin") not in sys.path:
+    sys.path.append(os.path.join(decky.DECKY_PLUGIN_DIR, "py_modules", "Pythonwin"))
+import pywin32_bootstrap
+import screen_brightness_control as sbc
+import win32api
+import win32con
+import pywintypes
 import psutil
 from collections import defaultdict
+from datetime import datetime
 from ctypes import *
 from ctypes.wintypes import *
 from shutil import copyfile
 from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+decky.logger.info(f"Platform: {platform.architecture()}")
+decky.logger.info(f"Platform: {platform.python_implementation()}")
+decky.logger.info(f"Version: {sys.version}")
+#decky.logger.info(f"Path: {sys.path}")
 
 ryzenadj_lib_path = os.path.dirname(os.path.abspath(__file__))
 os.chdir(ryzenadj_lib_path)
@@ -81,7 +96,7 @@ def adjust(field, value):
     adjust_func.argtypes = [c_void_p, c_ulong]
     res = adjust_func(ry, value)
     if res:
-        decky.logger.error(f"Adjust {field} failed: {error.format(function_name, res)}")
+        decky.logger.error(f"Adjust {field} using {function_name} failed: {res}")
 
 def determine(field):
     # First, refresh the table to ensure we have the latest values
@@ -91,7 +106,7 @@ def determine(field):
     determine_func.argtypes = [c_void_p]
     determine_func.restype = c_float
     res = determine_func(ry)
-    decky.logger.info(f"Determined {field}: {res}")
+    # decky.logger.info(f"Determined {field}: {res}")
     if math.isnan(res):
         return 10
     return res
@@ -188,6 +203,8 @@ def restart_process(process_name):
         except FileNotFoundError:
             decky.logger.info(f"Executable at {process_path} not found")
             return False
+        finally:
+            decky.logger.info(f"Process {process_name} at {process_path} restarted")
         return True
 
 def is_process_running(process_name):
@@ -196,12 +213,23 @@ def is_process_running(process_name):
 def setup_hwinfo():
     decky.logger.info("[HWiNFO] Setting up")
     hwinfo_sensors_key_path = r"Software\HWiNFO64\Sensors"
+    hwinfo_sensors_f_key_path = r"Software\HWiNFO64\Sensors\F000CCCC_0"
     hwinfo_sensors_custom_key_path = hwinfo_sensors_key_path + r"\Custom"
     hwinfo_sensors_custom_decky_key_path = hwinfo_sensors_custom_key_path + r"\Decky Windows Tools"
     hwinfo_sensors_custom_other0_path = hwinfo_sensors_custom_decky_key_path + r"\Other0"
+    hwinfo_sensors_f_other0_path = hwinfo_sensors_f_key_path + r"\Other0"
     hwinfo_sensors_custom_other1_path = hwinfo_sensors_custom_decky_key_path + r"\Other1"
+    hwinfo_sensors_f_other1_path = hwinfo_sensors_f_key_path + r"\Other1"
     hwinfo_sensors_custom_other2_path = hwinfo_sensors_custom_decky_key_path + r"\Other2"
+    hwinfo_sensors_f_other2_path = hwinfo_sensors_f_key_path + r"\Other2"
     hwinfo_sensors_custom_other3_path = hwinfo_sensors_custom_decky_key_path + r"\Other3"
+    hwinfo_sensors_f_other3_path = hwinfo_sensors_f_key_path + r"\Other3"
+    hwinfo_sensors_custom_other4_path = hwinfo_sensors_custom_decky_key_path + r"\Other4"
+    hwinfo_sensors_f_other4_path = hwinfo_sensors_f_key_path + r"\Other4"
+    hwinfo_sensors_custom_other5_path = hwinfo_sensors_custom_decky_key_path + r"\Other5"
+    hwinfo_sensors_f_other5_path = hwinfo_sensors_f_key_path + r"\Other5"
+    hwinfo_sensors_custom_other6_path = hwinfo_sensors_custom_decky_key_path + r"\Other6"
+    hwinfo_sensors_f_other6_path = hwinfo_sensors_f_key_path + r"\Other6"
 
     try:
         hwinfo_sensors_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, hwinfo_sensors_key_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
@@ -231,6 +259,13 @@ def setup_hwinfo():
         restart_hwinfo = True
         decky.logger.info("[HWInfo] Create custom sensors")
         hwinfo_sensors_custom_key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_key_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+    
+    try:
+        hwinfo_sensors_f_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, hwinfo_sensors_f_key_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+    except FileNotFoundError:
+        restart_hwinfo = True
+        decky.logger.info("[HWInfo] Create custom F000CCCC_0 sensors")
+        hwinfo_sensors_f_key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, hwinfo_sensors_f_key_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
 
     # hwinfo_sensors_custom_decky_key
     try:
@@ -246,59 +281,333 @@ def setup_hwinfo():
         restart_hwinfo = True
         decky.logger.info("[HWInfo] Add custom sensor 0 for Decky Windows Tools")
         hwinfo_sensors_custom_other0_key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_other0_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
-    winreg.SetValueEx(hwinfo_sensors_custom_other0_key, "Name", 0, winreg.REG_SZ, "CPU Clock")
-    winreg.SetValueEx(hwinfo_sensors_custom_other0_key, "Value", 0, winreg.REG_SZ, "max(\"Core 0 Ratio\", \"Core 1 Ratio\", \"Core 2 Ratio\", \"Core 3 Ratio\", \"Core 4 Ratio\", \"Core 5 Ratio\", \"Core 6 Ratio\", \"Core 7 Ratio\") * 100")
-    winreg.SetValueEx(hwinfo_sensors_custom_other0_key, "Unit", 0, winreg.REG_SZ, "Mhz")
+        winreg.SetValueEx(hwinfo_sensors_custom_other0_key, "Name", 0, winreg.REG_SZ, "CPU Clock")
+        winreg.SetValueEx(hwinfo_sensors_custom_other0_key, "Value", 0, winreg.REG_SZ, "\"Core Ratios\" * 100")
+        winreg.SetValueEx(hwinfo_sensors_custom_other0_key, "Unit", 0, winreg.REG_SZ, "Mhz")
     
-    # try:
-    #     hwinfo_sensors_custom_other1_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_other1_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
-    # except FileNotFoundError:
-    #     restart_hwinfo = True
-    #     decky.logger.info("[HWInfo] Add custom sensor 1 for Decky Windows Tools")
-    #     hwinfo_sensors_custom_other1_key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_other1_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
-    # winreg.SetValueEx(hwinfo_sensors_custom_other1_key, "Name", 0, winreg.REG_SZ, "CPU Clock")
-    # winreg.SetValueEx(hwinfo_sensors_custom_other1_key, "Value", 0, winreg.REG_SZ, "max(\"Core 0 Clock\", \"Core 1 Clock\", \"Core 2 Clock\", \"Core 3 Clock\", \"Core 4 Clock\", \"Core 5 Clock\", \"Core 6 Clock\", \"Core 7 Clock\")")
-    # winreg.SetValueEx(hwinfo_sensors_custom_other1_key, "Unit", 0, winreg.REG_SZ, "Mhz")
+    try:
+        hwinfo_sensors_f_other0_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, hwinfo_sensors_f_other0_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+    except FileNotFoundError:
+        restart_hwinfo = True
+        decky.logger.info("[HWInfo] Add F000CCC0 0 for Decky Windows Tools")
+        hwinfo_sensors_f_other0_key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, hwinfo_sensors_f_other0_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+        winreg.SetValueEx(hwinfo_sensors_f_other0_key, "DecimalDigits", 0, winreg.REG_DWORD, 0)
+        winreg.SetValueEx(hwinfo_sensors_f_other0_key, "ThousandsSep", 0, winreg.REG_DWORD, 0)
+        winreg.SetValueEx(hwinfo_sensors_f_other0_key, "Color", 0, winreg.REG_DWORD, 0)
+        winreg.SetValueEx(hwinfo_sensors_f_other0_key, "InVSB", 0, winreg.REG_DWORD, 1)
+        winreg.SetValueEx(hwinfo_sensors_f_other0_key, "VSBidx", 0, winreg.REG_DWORD, 0)
+    
+    try:
+        hwinfo_sensors_custom_other1_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_other1_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+    except FileNotFoundError:
+        restart_hwinfo = True
+        decky.logger.info("[HWInfo] Add custom sensor 1 for Decky Windows Tools")
+        hwinfo_sensors_custom_other1_key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_other1_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+        winreg.SetValueEx(hwinfo_sensors_custom_other1_key, "Name", 0, winreg.REG_SZ, "CPU Effective Clock")
+        winreg.SetValueEx(hwinfo_sensors_custom_other1_key, "Value", 0, winreg.REG_SZ, "max(\"Zen5 Core 0 T0 Effective Clock\",\"Zen5 Core 1 T0 Effective Clock\",\"Zen5 Core 2 T0 Effective Clock\",\"Zen5 Core 3 T0 Effective Clock\",\"Zen5 Core 4 T0 Effective Clock\",\"Zen5 Core 5 T0 Effective Clock\",\"Zen5 Core 6 T0 Effective Clock\",\"Zen5 Core 7 T0 Effective Clock\")")
+        winreg.SetValueEx(hwinfo_sensors_custom_other1_key, "Unit", 0, winreg.REG_SZ, "Mhz")
 
-    # try:
-    #     hwinfo_sensors_custom_other2_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_other2_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
-    # except FileNotFoundError:
-    #     restart_hwinfo = True
-    #     decky.logger.info("[HWInfo] Add custom sensor 2 for Decky Windows Tools")
-    #     hwinfo_sensors_custom_other2_key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_other2_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+    try:
+        hwinfo_sensors_f_other1_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, hwinfo_sensors_f_other1_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+    except FileNotFoundError:
+        restart_hwinfo = True
+        decky.logger.info("[HWInfo] Add F000CCC0 1 for Decky Windows Tools")
+        hwinfo_sensors_f_other1_key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, hwinfo_sensors_f_other1_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+        winreg.SetValueEx(hwinfo_sensors_f_other1_key, "DecimalDigits", 0, winreg.REG_DWORD, 0)
+        winreg.SetValueEx(hwinfo_sensors_f_other1_key, "ThousandsSep", 0, winreg.REG_DWORD, 0)
+        winreg.SetValueEx(hwinfo_sensors_f_other1_key, "Color", 0, winreg.REG_DWORD, 0)
+        winreg.SetValueEx(hwinfo_sensors_f_other1_key, "InVSB", 0, winreg.REG_DWORD, 1)
+        winreg.SetValueEx(hwinfo_sensors_f_other1_key, "VSBidx", 0, winreg.REG_DWORD, 1)
 
-    # try:
-    #     hwinfo_sensors_custom_other3_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_other3_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
-    # except FileNotFoundError:
-    #     restart_hwinfo = True
-    #     decky.logger.info("[HWInfo] Add custom sensor 3 for Decky Windows Tools")
-    #     hwinfo_sensors_custom_other3_key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_other3_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+    try:
+        hwinfo_sensors_custom_other2_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_other2_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+    except FileNotFoundError:
+        restart_hwinfo = True
+        decky.logger.info("[HWInfo] Add custom sensor 2 for Decky Windows Tools")
+        hwinfo_sensors_custom_other2_key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_other2_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+        winreg.SetValueEx(hwinfo_sensors_custom_other2_key, "Name", 0, winreg.REG_SZ, "CPU Usage")
+        winreg.SetValueEx(hwinfo_sensors_custom_other2_key, "Value", 0, winreg.REG_SZ, "\"Max CPU/Thread Usage\"")
+        winreg.SetValueEx(hwinfo_sensors_custom_other2_key, "Unit", 0, winreg.REG_SZ, "%")
+
+    try:
+        hwinfo_sensors_f_other2_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, hwinfo_sensors_f_other2_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+    except FileNotFoundError:
+        restart_hwinfo = True
+        decky.logger.info("[HWInfo] Add F000CCC0 2 for Decky Windows Tools")
+        hwinfo_sensors_f_other2_key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, hwinfo_sensors_f_other2_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+        winreg.SetValueEx(hwinfo_sensors_f_other2_key, "DecimalDigits", 0, winreg.REG_DWORD, 0)
+        winreg.SetValueEx(hwinfo_sensors_f_other2_key, "ThousandsSep", 0, winreg.REG_DWORD, 0)
+        winreg.SetValueEx(hwinfo_sensors_f_other2_key, "Color", 0, winreg.REG_DWORD, 0)
+        winreg.SetValueEx(hwinfo_sensors_f_other2_key, "InVSB", 0, winreg.REG_DWORD, 1)
+        winreg.SetValueEx(hwinfo_sensors_f_other2_key, "VSBidx", 0, winreg.REG_DWORD, 2)
+
+    try:
+        hwinfo_sensors_custom_other3_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_other3_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+    except FileNotFoundError:
+        restart_hwinfo = True
+        decky.logger.info("[HWInfo] Add custom sensor 3 for Decky Windows Tools")
+        hwinfo_sensors_custom_other3_key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_other3_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+        winreg.SetValueEx(hwinfo_sensors_custom_other3_key, "Name", 0, winreg.REG_SZ, "GPU Clock")
+        winreg.SetValueEx(hwinfo_sensors_custom_other3_key, "Value", 0, winreg.REG_SZ, "\"GPU Clock\"")
+        winreg.SetValueEx(hwinfo_sensors_custom_other3_key, "Unit", 0, winreg.REG_SZ, "Mhz")
+    
+    try:
+        hwinfo_sensors_f_other3_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, hwinfo_sensors_f_other3_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+    except FileNotFoundError:
+        restart_hwinfo = True
+        decky.logger.info("[HWInfo] Add F000CCC0 3 for Decky Windows Tools")
+        hwinfo_sensors_f_other3_key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, hwinfo_sensors_f_other3_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+        winreg.SetValueEx(hwinfo_sensors_f_other3_key, "DecimalDigits", 0, winreg.REG_DWORD, 0)
+        winreg.SetValueEx(hwinfo_sensors_f_other3_key, "ThousandsSep", 0, winreg.REG_DWORD, 0)
+        winreg.SetValueEx(hwinfo_sensors_f_other3_key, "Color", 0, winreg.REG_DWORD, 0)
+        winreg.SetValueEx(hwinfo_sensors_f_other3_key, "InVSB", 0, winreg.REG_DWORD, 1)
+        winreg.SetValueEx(hwinfo_sensors_f_other3_key, "VSBidx", 0, winreg.REG_DWORD, 3)
+
+    try:
+        hwinfo_sensors_custom_other4_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_other4_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+    except FileNotFoundError:
+        restart_hwinfo = True
+        decky.logger.info("[HWInfo] Add custom sensor 4 for Decky Windows Tools")
+        hwinfo_sensors_custom_other4_key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_other4_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+        winreg.SetValueEx(hwinfo_sensors_custom_other4_key, "Name", 0, winreg.REG_SZ, "GPU Effective Clock")
+        winreg.SetValueEx(hwinfo_sensors_custom_other4_key, "Value", 0, winreg.REG_SZ, "\"GPU Clock (Effective)\"")
+        winreg.SetValueEx(hwinfo_sensors_custom_other4_key, "Unit", 0, winreg.REG_SZ, "Mhz")
+
+    try:
+        hwinfo_sensors_f_other4_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, hwinfo_sensors_f_other4_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+    except FileNotFoundError:
+        restart_hwinfo = True
+        decky.logger.info("[HWInfo] Add F000CCC0 4 for Decky Windows Tools")
+        hwinfo_sensors_f_other4_key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, hwinfo_sensors_f_other4_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+        winreg.SetValueEx(hwinfo_sensors_f_other4_key, "DecimalDigits", 0, winreg.REG_DWORD, 0)
+        winreg.SetValueEx(hwinfo_sensors_f_other4_key, "ThousandsSep", 0, winreg.REG_DWORD, 0)
+        winreg.SetValueEx(hwinfo_sensors_f_other4_key, "Color", 0, winreg.REG_DWORD, 0)
+        winreg.SetValueEx(hwinfo_sensors_f_other4_key, "InVSB", 0, winreg.REG_DWORD, 1)
+        winreg.SetValueEx(hwinfo_sensors_f_other4_key, "VSBidx", 0, winreg.REG_DWORD, 4)
+
+    try:
+        hwinfo_sensors_custom_other5_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_other5_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+    except FileNotFoundError:
+        restart_hwinfo = True
+        decky.logger.info("[HWInfo] Add custom sensor 5 for Decky Windows Tools")
+        hwinfo_sensors_custom_other5_key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, hwinfo_sensors_custom_other5_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+        winreg.SetValueEx(hwinfo_sensors_custom_other5_key, "Name", 0, winreg.REG_SZ, "GPU Usage")
+        winreg.SetValueEx(hwinfo_sensors_custom_other5_key, "Value", 0, winreg.REG_SZ, "\"GPU D3D Usage\"")
+        winreg.SetValueEx(hwinfo_sensors_custom_other5_key, "Unit", 0, winreg.REG_SZ, "%")
+    
+    try:
+        hwinfo_sensors_f_other5_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, hwinfo_sensors_f_other5_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+    except FileNotFoundError:
+        restart_hwinfo = True
+        decky.logger.info("[HWInfo] Add F000CCC0 5 for Decky Windows Tools")
+        hwinfo_sensors_f_other5_key= winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, hwinfo_sensors_f_other5_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+        winreg.SetValueEx(hwinfo_sensors_f_other5_key, "DecimalDigits", 0, winreg.REG_DWORD, 0)
+        winreg.SetValueEx(hwinfo_sensors_f_other5_key, "ThousandsSep", 0, winreg.REG_DWORD, 0)
+        winreg.SetValueEx(hwinfo_sensors_f_other5_key, "Color", 0, winreg.REG_DWORD, 0)
+        winreg.SetValueEx(hwinfo_sensors_f_other5_key, "InVSB", 0, winreg.REG_DWORD, 1)
+        winreg.SetValueEx(hwinfo_sensors_f_other5_key, "VSBidx", 0, winreg.REG_DWORD, 5)
     
     hwinfo_sensors_custom_other0_key.Close()
-    # hwinfo_sensors_custom_other1_key.Close()
-    # hwinfo_sensors_custom_other2_key.Close()
-    # hwinfo_sensors_custom_other3_key.Close()
+    hwinfo_sensors_custom_other1_key.Close()
+    hwinfo_sensors_custom_other2_key.Close()
+    hwinfo_sensors_custom_other3_key.Close()
+    hwinfo_sensors_custom_other4_key.Close()
+    hwinfo_sensors_custom_other5_key.Close()
     hwinfo_sensors_custom_decky_key.Close()
     hwinfo_sensors_custom_key.Close()
     hwinfo_sensors_key.Close()
+    hwinfo_sensors_f_key.Close()
+    hwinfo_sensors_f_other0_key.Close()
+    hwinfo_sensors_f_other1_key.Close()
+    hwinfo_sensors_f_other2_key.Close()
+    hwinfo_sensors_f_other3_key.Close()
+    hwinfo_sensors_f_other4_key.Close()
+    hwinfo_sensors_f_other5_key.Close()
 
-    if restart_hwinfo:
+    is_hwinfo_running = is_process_running("HWiNFO64.EXE")
+
+    if restart_hwinfo and is_hwinfo_running:
         restart_process("HWiNFO64.EXE")
     else:
-        if is_process_running("HWiNFO64.EXE"):
+        if is_hwinfo_running:
             decky.logger.info("[HWInfo] Correctly configred, no need to restart. It's running already")
         else:
             try:
                 decky.logger.info("[HWInfo] Correctly configred, no need to restart. But it's not running. Trying to start it.")
-                subprocess.run(["C:\Program Files\HWiNFO64\HWiNFO64.EXE"], check=True)
+                subprocess.run(["C:\Program Files\HWiNFO64\HWiNFO64.EXE"], check=True, timeout=5)
                 decky.logger.info("[HWInfo] HWiNFO started.")
             except subprocess.CalledProcessError as e:
                 decky.logger.info("[HWInfo] Can't start HWiNFO. Make sure it's installed.")
             except FileNotFoundError:
                 decky.logger.info("[HWInfo] HWiNFO not found at C:\Program Files\HWiNFO64\HWiNFO64.EXE. Make sure it's installed.")
 
+class TDP:
+    tdp: int
+    fps: list[int]
+
+    def __init__(self, tdp: int, fps: int):
+        self.tdp = tdp
+        self.fps = list()
+        self.fps.append(fps)
+
 class Plugin:
+    auto_tdp: bool = False
+    tdps: list[TDP] = []
+
+    # FPS values
+    UNKNOWN: int = -1
+    BEST: int = 60
+    GOOD: int = 55
+    BAD: int = 50
+    STABLE_NUM_RECORDED_FPS: int = 5
+
+    # TDP values
+    MIN_TDP: int = 4
+    MAX_TDP: int = 32
+    AVERAGE_TDP: int = 18
+
+    # Misc
+    SYSTEM_LOOP: int = 0
+    NO_FPS_COUNT: int = 0
+    IDLE_NO_FPS_NUM: int = 3
+
+    def display_demo(self):
+        # Get ADLXHelp and ADLX initialization
+        adlxHelper = ADLX.ADLXHelper()
+        ret = adlxHelper.Initialize()
+
+        if ret == ADLX.ADLX_RESULT.ADLX_OK:
+            # Get system services
+            system = adlxHelper.GetSystemServices()
+
+            if system is not None:
+                # Get display services
+                displayService = system.GetDisplaysServices()
+
+                if displayService is not None:
+                    # Iterate through the display list
+                    count = displayService.GetNumberOfDisplays()
+                    decky.logger.info("display count: {}".format(count))
+                    disList = displayService.GetDisplays()
+                    if disList is not None:
+                        for index, display in enumerate(disList):
+                            if display is not None:
+                                name = display.name()
+                                type = display.type()
+                                connectType = display.connectType()
+                                mid = display.ManufacturerID()
+                                edid = display.EDID()
+                                h,v = display.resolution()
+                                refreshRate = display.RefreshRate()
+                                pclock = display.PixelClock()
+                                scanType = display.ScanType()
+                                id = display.UniqueId()
+                                decky.logger.info("\nThe display [{}]:".format(index))
+                                decky.logger.info("\tName: {}".format(name))
+                                decky.logger.info("\tType: {}".format(type))
+                                decky.logger.info("\tConnector type: {}".format(connectType))
+                                decky.logger.info("\tManufacturer id: {}".format(mid))
+                                decky.logger.info("\tEDID: {}".format(edid))
+                                decky.logger.info("\tResolution:  h: {}  v: {}".format(h,v))
+                                decky.logger.info("\tRefresh rate: {}".format(refreshRate))
+                                decky.logger.info("\tPixel clock: {}".format(pclock))
+                                decky.logger.info("\tScan type: {}".format(scanType))
+                                decky.logger.info("\tUnique id: {}".format(id))
+                                # Release display interface
+                                del display
+
+                        # Release displayList interface
+                        del disList
+
+                    # Release displayService interface
+                    del displayService
+
+        # Terminate ADLX
+        ret = adlxHelper.Terminate()
+        decky.logger.info("ADLX Terminate ret is: {}".format(ret))
+
+    def record_fps(self, current_tdp, fps):
+        if len(self.tdps) == 0:
+            self.tdps.append(TDP(current_tdp, fps))
+            return
+        else:
+            added = False
+            for idx, tdp in enumerate(self.tdps):
+                if tdp.tdp == current_tdp:
+                    if len(self.tdps[idx].fps) >= self.STABLE_NUM_RECORDED_FPS:
+                        self.tdps[idx].fps.pop(0)
+                    self.tdps[idx].fps.append(fps)
+                    added = True
+                    break
+                else:
+                    if tdp.tdp < current_tdp:
+                        self.tdps.insert(idx, TDP(current_tdp, fps))
+                        added = True
+                        break
+            if not added:
+                self.tdps.append(TDP(current_tdp, fps))
+        
+        tdps_debug = ""
+        for idx, tdp in enumerate(self.tdps):
+            fps_debug = ""
+            for idx2, fps in enumerate(tdp.fps):
+                fps_debug = f"{fps}" if idx2 == 0 else f"{fps_debug}, {fps}"
+            tdps_debug = f"{tdp.tdp}=[{fps_debug}]" if idx == 0 else f"{tdps_debug}, {tdp.tdp}=[{fps_debug}]"
+        decky.logger.info(f"FPSes: [{tdps_debug}]")
+
+    def find_recorded_fps(self, current_tdp):
+        for tdp in self.tdps:
+            if tdp.tdp == current_tdp:
+                return sum(tdp.fps) / len(tdp.fps) if len(tdp.fps) >= self.STABLE_NUM_RECORDED_FPS else self.UNKNOWN
+        return self.UNKNOWN
+    
+    def clear_lower_tdp(self, current_tdp):
+        indices_to_remove = []
+        for idx, tdp in enumerate(self.tdps):
+            if tdp.tdp < current_tdp:
+                indices_to_remove.append(idx)
+        indices_to_remove = sorted(indices_to_remove, key=int, reverse=True)
+        for index_to_remove in indices_to_remove:
+            self.tdps.pop(index_to_remove)
+    
+    def find_recorded_fps_count(self, current_tdp):
+        for tdp in self.tdps:
+            if tdp.tdp == current_tdp:
+                return len(tdp.fps)
+        return 0
+    
+    # async def find_lower_tdp(self, tdp):
+    #     if len(self.tdps) <= 1:
+    #         return tdp - 1
+        
+    #     lower_tdp = -1
+    #     for idx, last_tdp in enumerate(self.tdps):
+    #         if last_tdp[0] >= tdp:
+    #             continue
+    #         if last_tdp[1] >= self.GOOD:
+    #             continue
+    #         lower_tdp = 
+    
+    def num_recorded_fps(self):
+        return len(self.tdps)
+        
+    def clear_fps(self):
+        self.tdps.clear()
+
+    async def get_min_tdp(self):
+        return self.MIN_TDP
+    
+    async def get_max_tdp(self):
+        return self.MAX_TDP
+
+    async def get_auto_tdp(self):
+        return self.auto_tdp
+    
+    async def set_auto_tdp(self, enable_auto_tdp):
+        self.auto_tdp = enable_auto_tdp
+
     async def get_fps(self):
+        black_list_apps = ["rustdesk"]
         global last_dwTime0
         # Map shared memory
         mmap_size = 4485160
@@ -324,6 +633,7 @@ class Plugin:
         # decky.logger.info(f'RTSS Shared Memory: Signature={dwSignature} Version={dwVersion:x} AppEntrySize={dwAppEntrySize} AppArrOffset={dwAppArrOffset} AppArrSize={dwAppArrSize} OSDEntrySize={dwOSDEntrySize} OSDArrOffset={dwOSDArrOffset} OSDArrSize={dwOSDArrSize} OSDFrame={dwOSDFrame}')
     
         fps = 0
+        app_name = 'No'
         
         # --- FPS loop (existing code) ---
         for dwEntry in range(dwAppArrSize):
@@ -339,9 +649,15 @@ class Plugin:
                 last_t0 = last_dwTime0s.get(pid)
                 if t0 != last_t0:
                     app_fps = 1000 * frames / (t1 - t0)
+                    raw_app_name = raw_name.decode('utf-8').rstrip('\x00')
+                    black_listed = [black_list_app for black_list_app in black_list_apps if black_list_app.lower() in raw_app_name.lower()]
+                    if len(black_listed):
+                        #decky.logger.info(f'Ignore {raw_app_name} ({pid}): {app_fps:.1f}')
+                        continue
                     if app_fps > fps:
                         fps = app_fps
-                    decky.logger.info(f'[FPS] PID {pid}: {app_fps:.1f}')
+                        app_name = raw_app_name
+                    decky.logger.info(f'[FPS] {raw_app_name} ({pid}): {app_fps:.1f}')
                     last_dwTime0s[pid] = t0
     
         # --- GPU clock from OSD entries ---
@@ -355,10 +671,10 @@ class Plugin:
             
         #     decky.logger.info(f'[GPU] OSD entry: osd="{osd}" osdOwner={osdOwner} osdEx="{osdEx[:60]}"')
         
-        decky.logger.info(f"Get FPS: {fps}")
-        return fps
+        # decky.logger.info(f"Get FPS: {fps} from {app_name} in {dwAppArrSize} apps")
+        return round(fps), app_name
     
-    # async def get_cpu_clock(self):
+    # async def get_cpu_clock_old(self):
     #     mmap_size = 44
     #     mm = mmap.mmap(0, mmap_size, 'Global\\HWiNFO_SENS_SM2')
         
@@ -418,28 +734,93 @@ class Plugin:
     #         decky.logger.info(f'[CPU] Type={type} SensorIndex={sensor_index} ID2={id2}\nNameOriginal="{name_original2}"\nNameUser="{name_user2}"\nUnit="{unit}"\nValue={value}')
 
     #     return 1000
-    async def get_cpu_clock(self):
+    async def get_hwinfo_sensors(self):
+        cpu_clock = 1000
+        cpu_effective_clock = 500
+        cpu_usage = 50
+        gpu_clock = 800
+        gpu_effective_clock = 200
+        gpu_usage = 50
         hwinfo_vsb_key_path = r"Software\HWiNFO64\VSB"
         try:
             hwinfo_vsb_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, hwinfo_vsb_key_path, 0, winreg.KEY_READ | winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
         except FileNotFoundError:
             decky.logger.info("[HWInfo] Not installed or running")
-            return 1000
+            return cpu_clock, cpu_effective_clock, cpu_usage, gpu_clock, gpu_effective_clock, gpu_usage
         
         try:
-            value1, _ = winreg.QueryValueEx(hwinfo_vsb_key, "Value0")
-            cpu_clock_str = str(value1)
+            value0, _ = winreg.QueryValueEx(hwinfo_vsb_key, "Value0")
+            cpu_clock_str = str(value0)
             cpu_clock_str = cpu_clock_str.replace(" Mhz", "")
             try:
                 cpu_clock = int(cpu_clock_str)
-                decky.logger.info(f"Get CPU clock: {cpu_clock}")
-                return cpu_clock
+                # decky.logger.info(f"Get CPU clock: {cpu_clock}")
             except ValueError:
                 decky.logger.info(f"Get CPU clock: Can't convert {cpu_clock_str} to int")
         except FileNotFoundError:
-            decky.logger.info("[HWInfo] VSB Value1 for CPU clock not configured")
+            decky.logger.info("[HWInfo] VSB Value0 for CPU Clock not configured")
+        
+        try:
+            value1, _ = winreg.QueryValueEx(hwinfo_vsb_key, "Value1")
+            cpu_effective_clock_str = str(value1)
+            cpu_effective_clock_str = cpu_effective_clock_str.replace(" Mhz", "")
+            try:
+                cpu_effective_clock = int(cpu_effective_clock_str)
+                # decky.logger.info(f"Get CPU effective clock: {cpu_effective_clock}")
+            except ValueError:
+                decky.logger.info(f"Get CPU effective clock: Can't convert {cpu_effective_clock_str} to int")
+        except FileNotFoundError:
+            decky.logger.info("[HWInfo] VSB Value1 for CPU Effective Clock not configured")
 
-        return 1000
+        try:
+            value2, _ = winreg.QueryValueEx(hwinfo_vsb_key, "Value2")
+            cpu_usage_str = str(value2)
+            cpu_usage_str = cpu_usage_str.replace(" %", "")
+            try:
+                cpu_usage = int(cpu_usage_str)
+                # decky.logger.info(f"Get CPU usage: {cpu_usage}")
+            except ValueError:
+                decky.logger.info(f"Get CPU usage: Can't convert {cpu_usage_str} to int")
+        except FileNotFoundError:
+            decky.logger.info("[HWInfo] VSB Value2 for CPU usage not configured")
+        
+        try:
+            value3, _ = winreg.QueryValueEx(hwinfo_vsb_key, "Value3")
+            gpu_clock_str = str(value3)
+            gpu_clock_str = gpu_clock_str.replace(" Mhz", "")
+            try:
+                gpu_clock = int(gpu_clock_str)
+                # decky.logger.info(f"Get GPU clock: {gpu_clock}")
+            except ValueError:
+                decky.logger.info(f"Get GPU clock: Can't convert {gpu_clock_str} to int")
+        except FileNotFoundError:
+            decky.logger.info("[HWInfo] VSB Value3 for GPU Clock not configured")
+        
+        try:
+            value4, _ = winreg.QueryValueEx(hwinfo_vsb_key, "Value4")
+            gpu_effective_clock_str = str(value4)
+            gpu_effective_clock_str = gpu_effective_clock_str.replace(" Mhz", "")
+            try:
+                gpu_effective_clock = int(gpu_effective_clock_str)
+                # decky.logger.info(f"Get GPU effective clock: {gpu_effective_clock}")
+            except ValueError:
+                decky.logger.info(f"Get GPU effective clock: Can't convert {gpu_effective_clock_str} to int")
+        except FileNotFoundError:
+            decky.logger.info("[HWInfo] VSB Value4 for GPU Effective Clock not configured")
+
+        try:
+            value5, _ = winreg.QueryValueEx(hwinfo_vsb_key, "Value5")
+            gpu_usage_str = str(value5)
+            gpu_usage_str = gpu_usage_str.replace(" %", "")
+            try:
+                gpu_usage = int(gpu_usage_str)
+                # decky.logger.info(f"Get GPU usage: {gpu_usage}")
+            except ValueError:
+                decky.logger.info(f"Get GPU usage: Can't convert {gpu_usage_str} to int")
+        except FileNotFoundError:
+            decky.logger.info("[HWInfo] VSB Value5 for GPU usage not configured")
+
+        return cpu_clock, cpu_effective_clock, cpu_usage, gpu_clock, gpu_effective_clock, gpu_usage
     
     # A normal method. It can be called from the TypeScript side using @decky/api.
     async def add(self, left: int, right: int) -> int:
@@ -456,6 +837,7 @@ class Plugin:
     async def _main(self):
         self.loop = asyncio.get_event_loop()
         setup_hwinfo()
+        # self.display_demo()
 
     # Function called first during the unload process, utilize this to handle your plugin being stopped, but not
     # completely removed
@@ -516,37 +898,13 @@ class Plugin:
         decky.logger.info(f"Set mute: {mute}")
 
     async def get_brightness(self):
-        si = subprocess.STARTUPINFO()
-        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        result = subprocess.run(
-            ["powershell", "-Command", "Get-Ciminstance -Namespace root/WMI -ClassName WmiMonitorBrightness | Select -ExpandProperty \"CurrentBrightness\""],
-            capture_output=True,
-            text=True,
-            startupinfo=si
-        )
-
-        try:
-            brightness = int(result.stdout.strip())
-        except ValueError:
-            brightness = 0
-            decky.logger.info(f"Get brightness: Can't convert {result.stdout} to int")
+        brightness = sbc.get_brightness(display=0)[0]
 
         decky.logger.info(f"Get brightness: {brightness}")
         return brightness
 
     async def set_brightness(self, brightness: int):
-        si = subprocess.STARTUPINFO()
-        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        # powershell -Command "(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1,70)"
-        result = subprocess.run(
-            ["powershell", "-Command", f"(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1,{brightness})"],
-            capture_output=True,
-            text=True,
-            startupinfo=si
-        )
-
-        if result.returncode != 0:
-            decky.logger.error(f"Set brightness to {brightness} failed: {result.stderr.strip()}")
+        sbc.set_brightness(brightness, display=0)
 
         decky.logger.info(f"Set brightness to {brightness}")
 
@@ -633,106 +991,84 @@ class Plugin:
 
         decky.logger.info(f"Set osd size: {value}")
 
-    async def get_max_tdp(self):
+    async def get_tdp_limit(self, print_log: bool):
         max_tdp = determine("slow_limit")
-        decky.logger.info(f"Get max tdp: {max_tdp} W")
+        if print_log:
+            decky.logger.info(f"Get max tdp: {max_tdp} W")
         return max_tdp
 
-    async def set_max_tdp(self, value: int):
+    async def set_tdp_limit(self, value: int):
         adjust("stapm_limit", value * 1000)
         adjust("fast_limit", value * 1000)
         adjust("slow_limit", value * 1000)
         adjust("apu_slow_limit", value * 1000)
-        decky.logger.info(f"Set max tdp: {value * 1000} mW")
+        decky.logger.info(f"Set TDP limit: {value * 1000} mW")
 
-    async def get_gpu_clock(self):
+    async def get_gpu_clock_limit(self):
         gpu_clock = determine("gfx_clk")
         decky.logger.info(f"Get gpu clock: {gpu_clock} MHz")
         if gpu_clock < 800:
             return 800
         return gpu_clock
 
-    async def set_gpu_clock(self, value: int):
+    async def set_gpu_clock_limit(self, value: int):
         adjust("gfx_clk", value)
         decky.logger.info(f"Set gpu clock: {value} MHz")
 
     async def get_refresh_rates(self):
-        exe_path = os.path.join(decky.DECKY_PLUGIN_DIR, "bin", "QRes.exe")
+        # Get primary display device
+        dev = win32api.EnumDisplayDevices(None, 0)
+        dev_name = dev.DeviceName
 
-        si = subprocess.STARTUPINFO()
-        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        result = subprocess.run(
-            [exe_path, "/L"],
-            capture_output=True,
-            text=True,
-            startupinfo=si
-        )
+        rates = set()
+        mode_num = 0
+        common_refresh_rates = [40, 45, 60, 90, 120, 144, 165, 240, 300]
+
+        while True:
+            try:
+                dm = win32api.EnumDisplaySettings(dev_name, mode_num)
+            except Exception:
+                break
+            freq = dm.DisplayFrequency
+            if freq in common_refresh_rates:
+                rates.add(freq)
+            mode_num += 1
         
-        # decky.logger.info(f"Get refresh rate: {result.stdout}")
-        # Split the output into lines
-        lines = result.stdout.strip().splitlines()
-        # Extract refresh rates
-        refresh_rates = []
-
-        for line in lines:
-            if re.match(r'^\d', line):  # line starts with a number
-                match = re.search(r'@ (\d+) Hz', line)
-                if match:
-                    refresh_rate_value = int(match.group(1))
-                    if refresh_rate_value % 5 == 0:  # Only include refresh rates that are multiples of 5
-                        refresh_rates.append(refresh_rate_value)
-                    else:
-                        decky.logger.info(f"Ignore refresh rate: {refresh_rate_value} Hz because it seems weird")
-
-        # Get unique values and sort them
-        unique_sorted_rates = sorted(set(refresh_rates))
-
-        decky.logger.info(unique_sorted_rates)
-
-        return unique_sorted_rates
+        decky.logger.info(f"Found {len(rates)} supported refresh rates of the screen")
+        return sorted(rates)
 
     async def get_refresh_rate(self):
-        exe_path = os.path.join(decky.DECKY_PLUGIN_DIR, "bin", "QRes.exe")
+        dev = win32api.EnumDisplayDevices(None, 0)
+        dev_name = dev.DeviceName
+        dm = win32api.EnumDisplaySettings(dev_name, win32con.ENUM_CURRENT_SETTINGS)
 
-        si = subprocess.STARTUPINFO()
-        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        result = subprocess.run(
-            [exe_path, "/S"],
-            capture_output=True,
-            text=True,
-            startupinfo=si
-        )
-        
-        # Search for the first line starting with a resolution and containing "@ <number> Hz"
-        for line in result.stdout.strip().splitlines():
-            if re.match(r'^\d', line):  # line starts with a number
-                match = re.search(r'@ (\d+) Hz', line)
-                if match:
-                    current_refresh_rate = int(match.group(1))
-                    decky.logger.info(f"Get refresh rate: {current_refresh_rate}")
-                    break
-        else:
-            current_refresh_rate = 60  # Not found
-            decky.logger.info("Get refresh rate failed, fall back to 60")
-
-        return current_refresh_rate
+        decky.logger.info(f"Get refresh rate: {dm.DisplayFrequency}")
+        return dm.DisplayFrequency
 
     async def set_refresh_rate(self, value: int):
-        exe_path = os.path.join(decky.DECKY_PLUGIN_DIR, "bin", "QRes.exe")
+        try:
+            # Get the current display settings
+            dev = win32api.EnumDisplayDevices(None, 0)
+            dev_name = dev.DeviceName
+            devmode = win32api.EnumDisplaySettings(dev_name, win32con.ENUM_CURRENT_SETTINGS)
 
-        si = subprocess.STARTUPINFO()
-        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        result = subprocess.run(
-            [exe_path, "/R", str(value)],
-            capture_output=True,
-            text=True,
-            startupinfo=si
-        )
+            # Set the new refresh rate
+            devmode.DisplayFrequency = value
 
-        if result.returncode != 0:
-            decky.logger.error(f"Failed to set refresh rate: {result.stderr.strip()}")
+            # Specify that the refresh rate field is being modified
+            devmode.Fields = win32con.DM_DISPLAYFREQUENCY
 
-        decky.logger.info(f"Set refresh rate: {value}")
+            # Apply the changes
+            change_result = win32api.ChangeDisplaySettings(devmode, 0)
+
+            if change_result == win32con.DISP_CHANGE_SUCCESSFUL:
+                decky.logger.info(f"Set refresh rate: {value} Hz")
+            elif change_result == win32con.DISP_CHANGE_RESTART:
+                decky.logger.info(f"Set refresh rate: {value} Hz, but a restart is required.")
+            else:
+                decky.logger.info(f"Failed to set refresh rate to {value} Hz. Error code: {change_result}")
+        except pywintypes.error as e:
+            decky.logger.error(f"An error occurred: {e}")
 
     async def get_turbo_boost(self):
         si = subprocess.STARTUPINFO()
@@ -882,6 +1218,80 @@ class Plugin:
         )
 
         decky.logger.info(f"Set cpu clock limit: {hex_str} {value}")
+
+    async def system_loop(self, timestamp: int):
+        self.SYSTEM_LOOP = timestamp
+        while self.SYSTEM_LOOP == timestamp:
+            current_fps, app_name = await self.get_fps()
+            cpu_clock, cpu_effective_clock, cpu_usage, gpu_clock, gpu_effective_clock, gpu_usage = await self.get_hwinfo_sensors()
+            # decky.logger.info(f"System Statistics fps: {fps} cpu_clock: {cpu_clock} gpu_clock: {gpu_clock} cpu_usage: {cpu_usage} gpu_usage: {gpu_usage}")
+            await decky.emit("sytem_statistics_event", current_fps, cpu_clock, cpu_usage, gpu_clock, gpu_usage)
+
+            if self.auto_tdp:
+                if current_fps == 0:
+                    if self.NO_FPS_COUNT >= self.IDLE_NO_FPS_NUM:
+                        current_tdp = round(await self.get_tdp_limit(False))
+                        if current_tdp != self.AVERAGE_TDP:
+                            decky.logger.info(f"[{self.SYSTEM_LOOP}] Not playing any game, set TDP limit to 16W.")
+                            await self.set_tdp_limit(self.AVERAGE_TDP)
+                        else:
+                            decky.logger.info(f"[{self.SYSTEM_LOOP}] Not playing any game.")
+                        self.clear_fps()
+                    else:
+                        decky.logger.info(f"[{self.SYSTEM_LOOP}] No FPS detected, wait a bit longer to confirm that game is closed.")
+                        self.NO_FPS_COUNT += 1
+                else:
+                    self.NO_FPS_COUNT = 0
+                    current_tdp = round(await self.get_tdp_limit(False))
+                    self.record_fps(current_tdp, current_fps)
+                    if self.find_recorded_fps_count(current_tdp) < self.STABLE_NUM_RECORDED_FPS:
+                        decky.logger.info(f"[{self.SYSTEM_LOOP}] FPS is {current_fps} at {current_tdp}W (CPU: {cpu_clock}Mhz {cpu_usage}%, GPU: {gpu_clock}Mhz {gpu_usage}%), wait a little bit longer for FPS to be stable.")
+                    else:
+                        average_fps = self.find_recorded_fps(current_tdp)
+                        super_well_text = ""
+                        if average_fps >= self.BEST:
+                            # self.clear_lower_tdp(current_tdp)
+                            super_well_text = "super "
+                        if average_fps >= self.GOOD: # if already at good FPS, we can decrease the TDP.
+                            if current_tdp <= self.MIN_TDP: # if already at lowest TDP, no need to do anything.
+                                decky.logger.info(f"[{self.SYSTEM_LOOP}] Average FPS is {average_fps} at {current_tdp}W (CPU: {cpu_clock}Mhz {cpu_usage}%, GPU: {gpu_clock}Mhz {gpu_usage}%) but already running at min TDP {self.MIN_TDP}W, no need to adjust.")
+                            else:
+                                less_tdp_fps = self.find_recorded_fps(current_tdp - 1)
+                                if less_tdp_fps == self.UNKNOWN:
+                                    decky.logger.info(f"[{self.SYSTEM_LOOP}] Running {super_well_text}well ({average_fps}) at {current_tdp}W (CPU: {cpu_clock}Mhz {cpu_usage}%, GPU: {gpu_clock}Mhz {gpu_usage}%), trying to decrease TDP to {current_tdp - 1}W.")
+                                    await self.set_tdp_limit(current_tdp - 1)
+                                elif less_tdp_fps < self.BAD:
+                                    decky.logger.info(f"[{self.SYSTEM_LOOP}] Running {super_well_text}well ({average_fps}) at {current_tdp}W (CPU: {cpu_clock}Mhz {cpu_usage}%, GPU: {gpu_clock}Mhz {gpu_usage}%), decrease TDP will affect performance. Keep it now.")
+                                else:
+                                    decky.logger.info(f"[{self.SYSTEM_LOOP}] Running {super_well_text}well ({average_fps}) at {current_tdp}W (CPU: {cpu_clock}Mhz {cpu_usage}%, GPU: {gpu_clock}Mhz {gpu_usage}%). Trying to decrease TDP to {current_tdp - 1}.")
+                                    await self.set_tdp_limit(current_tdp - 1)
+                        else:
+                            if current_tdp >= self.MAX_TDP:
+                                decky.logger.info(f"[{self.SYSTEM_LOOP}] Average FPS is {average_fps} at {current_tdp}W (CPU: {cpu_clock}Mhz {cpu_usage}%, GPU: {gpu_clock}Mhz {gpu_usage}%) but already running at max TDP {self.MAX_TDP}W, can't adjust.")
+                            else:
+                                decky.logger.info(f"[{self.SYSTEM_LOOP}] Average FPS is {average_fps} at {current_tdp}W (CPU: {cpu_clock}Mhz {cpu_usage}%, GPU: {gpu_clock}Mhz {gpu_usage}%), trying to increase TDP to {current_tdp + 1}W.")
+                                await self.set_tdp_limit(current_tdp + 1)
+            else:
+                decky.logger.info(f"Not adjust TDP. FPS is {current_fps}.")
+            
+            if self.auto_tdp:
+                if current_fps > 0:
+                    await asyncio.sleep(1)
+                else:
+                    if self.NO_FPS_COUNT >= self.IDLE_NO_FPS_NUM:
+                        await asyncio.sleep(5)
+                    else:
+                        await asyncio.sleep(1)
+            else:
+                await asyncio.sleep(5)
+
+    async def start_system_loop(self):
+        timestamp_now = round(datetime.now().timestamp())
+        decky.logger.info(f"Start System Loop at {timestamp_now}")
+        self.loop.create_task(self.system_loop(timestamp_now))
+
+    async def log_info(self, message: str):
+        decky.logger.info(str)
 
     # Migrations that should be performed before entering `_main()`.
     async def _migration(self):

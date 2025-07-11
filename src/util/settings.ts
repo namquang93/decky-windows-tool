@@ -14,11 +14,13 @@ const set_muted = callable<[boolean], void>('set_muted');
 const set_brightness = callable<[number], void>('set_brightness');
 const set_osd = callable<[number], void>('set_osd');
 const set_osd_size = callable<[number], void>('set_osd_size');
-const set_max_tdp = callable<[number], void>('set_max_tdp');
+const set_tdp_limit = callable<[number], void>('set_tdp_limit');
 const set_refresh_rate = callable<[number], void>('set_refresh_rate');
 const set_turbo_boost = callable<[boolean], void>('set_turbo_boost');
 const set_epp = callable<[number], void>('set_epp');
 const set_cpu_clock_limit = callable<[number], void>('set_cpu_clock_limit');
+const set_gpu_clock_limit = callable<[number], void>('set_gpu_clock_limit');
+const set_auto_tdp = callable<[boolean], void>('set_auto_tdp');
 
 //@JsonObject()
 export class SystemSetting {
@@ -38,7 +40,7 @@ export class SystemSetting {
   public osdSize: number;
 
   //@JsonProperty()
-  public maxTDP: number;
+  public tdpLimit: number;
 
   //@JsonProperty()
   public refreshRate: number;
@@ -61,11 +63,8 @@ export class SystemSetting {
   //@JsonProperty()
   public gpuClockLimit: number;
 
-  //@JsonProperty
-  public cpuClock: number;
-
   //@JsonProperty()
-  public fps: number;
+  public autoTDP: boolean;
 
   constructor() {
     this.volume = 20;
@@ -73,7 +72,7 @@ export class SystemSetting {
     this.brightness = 50;
     this.osd = 0;
     this.osdSize = 1;
-    this.maxTDP = 10;
+    this.tdpLimit = 10;
     this.refreshRate = 60;
     this.turboBoost = true;
     this.epp = 80;
@@ -81,8 +80,8 @@ export class SystemSetting {
     this.shouldLimitCPUClock = false;
     this.shouldLimitGPUClock = false;
     this.gpuClockLimit = 800;
-    this.cpuClock = 1000;
-    this.fps = 60;
+    this.autoTDP = true;
+    set_auto_tdp(true);
   }
 
   deepCopy(copyTarget: SystemSetting) {
@@ -92,7 +91,7 @@ export class SystemSetting {
     this.brightness = copyTarget.brightness;
     this.osd = copyTarget.osd;
     this.osdSize = copyTarget.osdSize;
-    this.maxTDP = copyTarget.maxTDP;
+    this.tdpLimit = copyTarget.tdpLimit;
     this.refreshRate = copyTarget.refreshRate;
     this.turboBoost = copyTarget.turboBoost;
     this.epp = copyTarget.epp;
@@ -100,8 +99,7 @@ export class SystemSetting {
     this.shouldLimitCPUClock = copyTarget.shouldLimitCPUClock;
     this.shouldLimitGPUClock = copyTarget.shouldLimitGPUClock;
     this.gpuClockLimit = copyTarget.gpuClockLimit;
-    this.cpuClock = copyTarget.cpuClock;
-    this.fps = copyTarget.fps;
+    this.autoTDP = copyTarget.autoTDP;
   }
 }
 
@@ -215,21 +213,21 @@ export class Settings {
     }
   }
 
-  static getMaxTDP() {
-    return this.instance.system.maxTDP;
+  static getTDPLimit() {
+    return this.instance.system.tdpLimit;
   }
 
-  static setMaxTDP(maxTDP: number) {
-    if (this.instance.system.maxTDP != maxTDP) {
-      this.instance.system.maxTDP = maxTDP;
-      set_max_tdp(maxTDP);
+  static setTDPLimit(tdpLimit: number) {
+    if (this.instance.system.tdpLimit != tdpLimit) {
+      this.instance.system.tdpLimit = tdpLimit;
+      set_tdp_limit(tdpLimit);
       // Settings.saveSettingsToLocalStorage();
     }
   }
 
-  static syncMaxTDP(maxTDP: number) {
-    if (this.instance.system.maxTDP != maxTDP) {
-      this.instance.system.maxTDP = maxTDP;
+  static syncTDPLimit(tdpLimit: number) {
+    if (this.instance.system.tdpLimit != tdpLimit) {
+      this.instance.system.tdpLimit = tdpLimit;
     }
   }
 
@@ -354,7 +352,7 @@ export class Settings {
       this.instance.system.gpuClockLimit = gpuClockLimit;
       if (this.instance.system.shouldLimitGPUClock) {
         // Call the API to set the GPU clock limit
-        // set_gpu_clock_limit(gpuClockLimit);
+        set_gpu_clock_limit(gpuClockLimit);
       }
       else {
         // Call the API to disable the GPU clock limit
@@ -381,9 +379,11 @@ export class Settings {
   static setShouldLimitGPUClock(shouldLimit: boolean) {
     if (this.instance.system.shouldLimitGPUClock != shouldLimit) {
       this.instance.system.shouldLimitGPUClock = shouldLimit;
-      if (!shouldLimit) {
-        // Call the API to disable the GPU clock limit
-        // set_gpu_clock_limit(0);
+      if (shouldLimit) {
+        if (this.instance.system.gpuClockLimit > 0)
+        {
+          set_gpu_clock_limit(this.instance.system.gpuClockLimit);
+        }
       }
       else {
         // Call the API to set the GPU clock limit
@@ -399,27 +399,14 @@ export class Settings {
     }
   }
 
-  static syncCPUClock(cpuClock: number) {
-    if (cpuClock == 0){
-      cpuClock = 800;
-    }
-
-    if (this.instance.system.cpuClock != cpuClock) {
-      this.instance.system.cpuClock = cpuClock;
-    }
+  static getAutoTDP() {
+    return this.instance.system.autoTDP;
   }
 
-  static getCPUClock() {
-    return this.instance.system.cpuClock;
-  }
-
-  static syncFPS(fps: number) {
-    if (this.instance.system.fps != fps) {
-      this.instance.system.fps = fps;
+  static setAutoTDP(enableAutoTDP: boolean) {
+    if (this.instance.system.autoTDP != enableAutoTDP) {
+      this.instance.system.autoTDP = enableAutoTDP;
+      set_auto_tdp(enableAutoTDP);
     }
-  }
-
-  static getFPS() {
-    return this.instance.system.fps;
   }
 }
