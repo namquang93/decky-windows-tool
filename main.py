@@ -17,8 +17,13 @@ import mmap
 import struct
 import platform
 import sys
+decky.logger.info(f"Platform: {platform.architecture()}")
+decky.logger.info(f"Platform: {platform.python_implementation()}")
+decky.logger.info(f"Version: {sys.version}")
+# decky.logger.info(f"Path: {sys.path}")
+
 import ADLXPybind as ADLX
-# Additional setup for pywin32, similar to pywin32.pth
+# Begin additional setup for pywin32, similar to pywin32.pth
 if os.path.join(decky.DECKY_PLUGIN_DIR, "py_modules", "win32") not in sys.path:
     sys.path.append(os.path.join(decky.DECKY_PLUGIN_DIR, "py_modules", "win32"))
 if os.path.join(decky.DECKY_PLUGIN_DIR, "py_modules", "win32", "lib") not in sys.path:
@@ -26,11 +31,16 @@ if os.path.join(decky.DECKY_PLUGIN_DIR, "py_modules", "win32", "lib") not in sys
 if os.path.join(decky.DECKY_PLUGIN_DIR, "py_modules", "Pythonwin") not in sys.path:
     sys.path.append(os.path.join(decky.DECKY_PLUGIN_DIR, "py_modules", "Pythonwin"))
 import pywin32_bootstrap
+# End additional setup for pywin32
+
 import screen_brightness_control as sbc
 import win32api
 import win32con
 import pywintypes
 import psutil
+import win32gui
+import win32process
+from psutil import NoSuchProcess
 from collections import defaultdict
 from datetime import datetime
 from ctypes import *
@@ -38,10 +48,7 @@ from ctypes.wintypes import *
 from shutil import copyfile
 from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-decky.logger.info(f"Platform: {platform.architecture()}")
-decky.logger.info(f"Platform: {platform.python_implementation()}")
-decky.logger.info(f"Version: {sys.version}")
-#decky.logger.info(f"Path: {sys.path}")
+# from overlay_editor_client import OverlayEditorClient
 
 ryzenadj_lib_path = os.path.dirname(os.path.abspath(__file__))
 os.chdir(ryzenadj_lib_path)
@@ -69,7 +76,7 @@ ryzenadj_lib.get_fast_limit.argtypes = [c_void_p]
 ry = ryzenadj_lib.init_ryzenadj()
 
 if not ry:
-    sys.exit("RyzenAdj could not get initialized")
+    decky.logger.error("RyzenAdj could not get initialized")
 
 #ryzenadj_lib.refresh_table(ry)
 
@@ -79,18 +86,13 @@ error_messages = {
     -4: "{:s} is rejected by SMU\n"
 }
 
-# RTSS
-rtss_key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"Software\WOW6432Node\Unwinder\RTSS", 0, winreg.KEY_READ)
-rtss_install_dir, _ = winreg.QueryValueEx(rtss_key, "InstallDir")
-winreg.CloseKey(rtss_key)
-rtss_lib = cdll.LoadLibrary(os.path.join(rtss_install_dir, "RTSSHooks64.dll"))
-rtss_osd_visible_flag = 1
-rtss_overlay_config_path = os.path.join(rtss_install_dir, "Plugins", "Client", "OverlayEditor.cfg")
-
 # RTSS SHARED MEMORY
 last_dwTime0s = defaultdict(int)
 
 def adjust(field, value):
+    if not ry:
+        decky.logger.error(f"Can't adjust {field} because not an AMD CPU")
+        return
     function_name = "set_" + field
     adjust_func = ryzenadj_lib.__getattr__(function_name)
     adjust_func.argtypes = [c_void_p, c_ulong]
@@ -99,6 +101,9 @@ def adjust(field, value):
         decky.logger.error(f"Adjust {field} using {function_name} failed: {res}")
 
 def determine(field):
+    if not ry:
+        decky.logger.error(f"Can't determine {field} because not an AMD CPU")
+        return 10
     # First, refresh the table to ensure we have the latest values
     ryzenadj_lib.refresh_table(ry)
     function_name = "get_" + field
@@ -112,6 +117,9 @@ def determine(field):
     return res
 
 def enable(field):
+    if not ry:
+        decky.logger.error(f"Can't enable {field} because not an AMD CPU")
+        return
     function_name = "set_" + field
     adjust_func = ryzenadj_lib.__getattr__(function_name)
     adjust_func.argtypes = [c_void_p]
@@ -119,60 +127,6 @@ def enable(field):
     if res:
         error = error_messages.get(res, "{:s} did fail with {:d}\n")
         sys.stderr.write(error.format(function_name, res))
-
-def get_flags():
-    rtss_get_flags_func = rtss_lib.__getattr__("GetFlags")
-    rtss_get_flags_func.argtypes = []
-    rtss_get_flags_func.restype = c_ulong
-    return rtss_get_flags_func()
-
-def set_flags(flag, value):
-    rtss_set_flags_func = rtss_lib.__getattr__("SetFlags")
-    rtss_set_flags_func.argtypes = [c_ulong, c_ulong]
-    rtss_set_flags_func(~flag, value)
-    # rtss_post_message_func = rtss_lib.__getattr__("PostMessage")
-    # rtss_post_message_func.argtypes = [c_ulong, WPARAM, LPARAM]
-    # rtss_post_message_func(0, WPARAM(0), LPARAM(0))
-
-def get_property(property_name):
-    rtss_load_profile_func = rtss_lib.__getattr__("LoadProfile")
-    rtss_load_profile_func.argtypes = [c_char_p]
-    rtss_load_profile_func(b"")
-
-    rtss_get_property_func = rtss_lib.__getattr__("GetProfileProperty")
-    rtss_get_property_func.argtypes = [LPCSTR, c_void_p, DWORD]
-    rtss_get_property_func.restype = BOOL
-    
-    dw_value = DWORD()
-    dw_size = DWORD(sizeof(dw_value))
-    success = rtss_get_property_func(property_name, byref(dw_value), dw_size)
-    # if success:
-    #     decky.logger.info(f"Property '{property_name.decode()}' = {dw_value.value}")
-    # else:
-    #     decky.logger.info(f"Failed to get property '{property_name.decode()}'")
-    
-    return dw_value.value if success else 0
-
-def set_property(property_name, value):
-    rtss_load_profile_func = rtss_lib.__getattr__("LoadProfile")
-    rtss_load_profile_func.argtypes = [c_char_p]
-    rtss_load_profile_func(b"")
-
-    rtss_set_property_func = rtss_lib.__getattr__("SetProfileProperty")
-    rtss_set_property_func.argtypes = [LPCSTR, c_void_p, DWORD]
-    rtss_set_property_func.restype = BOOL
-
-    dw_value = DWORD(value)
-    dw_size = DWORD(sizeof(dw_value))
-    success = rtss_set_property_func(property_name, byref(dw_value), dw_size)
-
-    rtss_save_profile_func = rtss_lib.__getattr__("SaveProfile")
-    rtss_save_profile_func.argtypes = [c_char_p]
-    rtss_save_profile_func(b"")
-
-    rtss_update_profile_func = rtss_lib.__getattr__("UpdateProfiles")
-    rtss_update_profile_func.argtypes = []
-    rtss_update_profile_func()
 
 def kill_process(process_name):
     for proc in psutil.process_iter():
@@ -196,7 +150,7 @@ def restart_process(process_name):
     else:
         try:
             decky.logger.info(f"Restarting process {process_name} at {process_path}")
-            subprocess.run([process_path], check=True)
+            subprocess.run([process_path], check=True, timeout=15, shell=True)
         except subprocess.CalledProcessError as e:
             decky.logger.info(f"Can't restart process at {process_path}")
             return False
@@ -209,6 +163,22 @@ def restart_process(process_name):
 
 def is_process_running(process_name):
     return process_name in (p.name() for p in psutil.process_iter())
+
+def get_active_window():
+    hwnd = win32gui.GetForegroundWindow()
+    _, pid = win32process.GetWindowThreadProcessId(hwnd)
+    if pid >= 0:
+        try:
+            proc = psutil.Process(pid)
+            name = proc.name()
+            exe = proc.exe()
+            title = win32gui.GetWindowText(hwnd)
+            # decky.logger.info(f"HWND: {hwnd}, PID: {pid}, Name: {name}, Path: {exe}, Title: {title}")
+            return hwnd, pid, name, exe, title
+        except NoSuchProcess:
+            return 0, pid, "Not Found", "Not Found", "Not Found"
+    else:
+        return 0, 0, "Unknown", "Unknown", "Unknown"
 
 def setup_hwinfo():
     decky.logger.info("[HWiNFO] Setting up")
@@ -434,7 +404,7 @@ def setup_hwinfo():
         else:
             try:
                 decky.logger.info("[HWInfo] Correctly configred, no need to restart. But it's not running. Trying to start it.")
-                subprocess.run(["C:\Program Files\HWiNFO64\HWiNFO64.EXE"], check=True, timeout=5)
+                subprocess.run(["C:\Program Files\HWiNFO64\HWiNFO64.EXE"], check=True, timeout=15, shell=True)
                 decky.logger.info("[HWInfo] HWiNFO started.")
             except subprocess.CalledProcessError as e:
                 decky.logger.info("[HWInfo] Can't start HWiNFO. Make sure it's installed.")
@@ -453,12 +423,13 @@ class TDP:
 class Plugin:
     auto_tdp: bool = False
     tdps: list[TDP] = []
+    current_refresh_rate: int = 60
 
     # FPS values
     UNKNOWN: int = -1
-    BEST: int = 60
-    GOOD: int = 55
-    BAD: int = 50
+    BEST_RATIO: float = 1.0 # best FPS should equal to current refresh rate
+    GOOD_RATIO: float = 11.0 / 12.0 # good FPS should be no less than current refresh rate times 11/12. For example, on a 60Hz screen, good FPS should be 55 or higher.
+    BAD_RATIO: float = 10.0 / 12.0 # bad FPS is less than current refresh rate minus times 10/12. For example, on a 60Hz screen, bad FPS is 50 or lower.
     STABLE_NUM_RECORDED_FPS: int = 5
 
     # TDP values
@@ -471,14 +442,172 @@ class Plugin:
     NO_FPS_COUNT: int = 0
     IDLE_NO_FPS_NUM: int = 3
 
-    def display_demo(self):
-        # Get ADLXHelp and ADLX initialization
-        adlxHelper = ADLX.ADLXHelper()
-        ret = adlxHelper.Initialize()
+    # RTSS
+    rtss_lib: CDLL
+    rtss_overlay_lib: CDLL
+    rtss_osd_visible_flag: int
+    rtss_overlay_config_path: str
+    # overlay_client: OverlayEditorClient
 
-        if ret == ADLX.ADLX_RESULT.ADLX_OK:
+    # ADLX
+    adlxHelper: ADLX.ADLXHelper = None
+    adlxStatus: ADLX.ADLX_RESULT
+
+    def setup_rtss(self):
+        # RTSS
+        rtss_key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"Software\WOW6432Node\Unwinder\RTSS", 0, winreg.KEY_READ)
+        rtss_install_dir, _ = winreg.QueryValueEx(rtss_key, "InstallDir")
+        winreg.CloseKey(rtss_key)
+        self.rtss_lib = cdll.LoadLibrary(os.path.join(rtss_install_dir, "RTSSHooks64.dll"))
+        self.rtss_osd_visible_flag = 1
+        self.rtss_overlay_config_path = os.path.join(rtss_install_dir, "Plugins", "Client", "OverlayEditor.cfg")
+        rtss_hotkey_config_path = os.path.join(rtss_install_dir, "Plugins", "Client", "HotkeyHandler.cfg")
+        with open(rtss_hotkey_config_path) as f:
+            lines = f.readlines()
+        rtss_overlay_path = os.path.join(rtss_install_dir, "Plugins", "Client", "Overlays")
+        for idx in range(1, 5):
+            ovl_file = f"level_{idx}.ovl"
+            ovl_target_path = os.path.join(rtss_overlay_path, ovl_file)
+            if not os.path.exists(ovl_target_path):
+                copyfile(os.path.join(decky.DECKY_PLUGIN_DIR, "bin", "overlays", ovl_file), ovl_target_path)
+            
+            # OVM1Hotkey
+            hotkey_key_prefix = f"OVM{idx}Hotkey"
+            hotkey_key_setting = f"OVM{idx}Hotkey=0003007{idx-1}"
+            for line_idx, line in enumerate(lines):
+                if line.startswith(hotkey_key_prefix):
+                    lines[line_idx] = hotkey_key_setting + '\n'
+                    break
+            else:
+                # not found
+                lines.append(hotkey_key_setting + '\n')
+            
+            # OVM1Message
+            hotkey_message_prefix = f"OVM{idx}Message"
+            hotkey_message_setting = f"OVM{idx}Message=Load"
+            for line_idx, line in enumerate(lines):
+                if line.startswith(hotkey_message_prefix):
+                    lines[line_idx] = hotkey_message_setting + '\n'
+                    break
+            else:
+                # not found
+                lines.append(hotkey_message_setting + '\n')
+            
+            # OVM1Params
+            hotkey_params_prefix = f"OVM{idx}Params"
+            hotkey_params_setting = f"OVM{idx}Params=level_{idx}.ovl"
+            for line_idx, line in enumerate(lines):
+                if line.startswith(hotkey_params_prefix):
+                    lines[line_idx] = hotkey_params_setting + '\n'
+                    break
+            else:
+                # not found
+                lines.append(hotkey_params_setting + '\n')
+            
+            # OVM1Desc
+            hotkey_desc_prefix = f"OVM{idx}Desc"
+            hotkey_desc_setting = f"OVM{idx}Desc=Load overlay"
+            for line_idx, line in enumerate(lines):
+                if line.startswith(hotkey_desc_prefix):
+                    lines[line_idx] = hotkey_desc_setting + '\n'
+                    break
+            else:
+                # not found
+                lines.append(hotkey_desc_setting + '\n')
+        
+        with open(rtss_hotkey_config_path, 'w') as f:
+            f.writelines(lines)
+
+        # self.overlay_client = OverlayEditorClient()
+        # self.overlay_client.post_overlay_message("Load", "", "level_1.ovl")
+        if not is_process_running("RTSS.exe"):
+            try:
+                subprocess.run([os.path.join(rtss_install_dir, "RTSS.exe")], check=True, timeout=10, shell=True)
+            except subprocess.TimeoutExpired as e:
+                decky.logger.info(f"RTSS startup timed out: {e}")
+            except FileNotFoundError:
+                decky.logger.info("RTSS executable not found. Please ensure RTSS is installed correctly.")  
+            except subprocess.CalledProcessError as e:
+                decky.logger.info(f"Error: Command '{e.cmd}' returned non-zero exit status {e.returncode}.")
+        # else:
+        #     restart_process("RTSS.exe")
+
+    def get_flags(self):
+        rtss_get_flags_func = self.rtss_lib.__getattr__("GetFlags")
+        rtss_get_flags_func.argtypes = []
+        rtss_get_flags_func.restype = c_ulong
+        return rtss_get_flags_func()
+
+    def set_flags(self, flag, value):
+        rtss_set_flags_func = self.rtss_lib.__getattr__("SetFlags")
+        rtss_set_flags_func.argtypes = [c_ulong, c_ulong]
+        rtss_set_flags_func(~flag, value)
+        # rtss_post_message_func = rtss_lib.__getattr__("PostMessage")
+        # rtss_post_message_func.argtypes = [c_ulong, WPARAM, LPARAM]
+        # rtss_post_message_func(0, WPARAM(0), LPARAM(0))
+
+    def get_property(self, property_name):
+        rtss_load_profile_func = self.rtss_lib.__getattr__("LoadProfile")
+        rtss_load_profile_func.argtypes = [c_char_p]
+        rtss_load_profile_func(b"")
+
+        rtss_get_property_func = self.rtss_lib.__getattr__("GetProfileProperty")
+        rtss_get_property_func.argtypes = [LPCSTR, c_void_p, DWORD]
+        rtss_get_property_func.restype = BOOL
+        
+        dw_value = DWORD()
+        dw_size = DWORD(sizeof(dw_value))
+        success = rtss_get_property_func(property_name, byref(dw_value), dw_size)
+        # if success:
+        #     decky.logger.info(f"Property '{property_name.decode()}' = {dw_value.value}")
+        # else:
+        #     decky.logger.info(f"Failed to get property '{property_name.decode()}'")
+        
+        return dw_value.value if success else 0
+
+    def set_property(self, property_name, value):
+        rtss_load_profile_func = self.rtss_lib.__getattr__("LoadProfile")
+        rtss_load_profile_func.argtypes = [c_char_p]
+        rtss_load_profile_func(b"")
+
+        rtss_set_property_func = self.rtss_lib.__getattr__("SetProfileProperty")
+        rtss_set_property_func.argtypes = [LPCSTR, c_void_p, DWORD]
+        rtss_set_property_func.restype = BOOL
+
+        dw_value = DWORD(value)
+        dw_size = DWORD(sizeof(dw_value))
+        success = rtss_set_property_func(property_name, byref(dw_value), dw_size)
+
+        rtss_save_profile_func = self.rtss_lib.__getattr__("SaveProfile")
+        rtss_save_profile_func.argtypes = [c_char_p]
+        rtss_save_profile_func(b"")
+
+        rtss_update_profile_func = self.rtss_lib.__getattr__("UpdateProfiles")
+        rtss_update_profile_func.argtypes = []
+        rtss_update_profile_func()
+    
+    async def init_adlx(self, location: str):
+        # Get ADLXHelp and ADLX initialization
+        initialization_text = "initialized"
+        if self.adlxHelper is not None:
+            initialization_text = "re-initialized"
+            self.adlxHelper.Terminate()
+        self.adlxHelper = ADLX.ADLXHelper()
+        self.adlxStatus = self.adlxHelper.Initialize()
+        if self.adlxStatus == ADLX.ADLX_RESULT.ADLX_OK:
+            decky.logger.info(f"ADLX {initialization_text} successfully from {location}")
+        else:
+            decky.logger.info(f"ADLX {initialization_text} failed from {location} with status: {self.adlxStatus}")
+    
+    async def deinit_adlx(self):
+        # Terminate ADLX
+        ret = self.adlxHelper.Terminate()
+        decky.logger.info("ADLX Terminate ret is: {}".format(ret))
+
+    def display_demo(self):
+        if self.adlxStatus == ADLX.ADLX_RESULT.ADLX_OK:
             # Get system services
-            system = adlxHelper.GetSystemServices()
+            system = self.adlxHelper.GetSystemServices()
 
             if system is not None:
                 # Get display services
@@ -521,10 +650,329 @@ class Plugin:
 
                     # Release displayService interface
                     del displayService
+    
+    async def get_radeon_super_resolution(self):
+        system = self.adlxHelper.GetSystemServices()
+        threeDSettingsServices = system.Get3DSettingsServices()
+        radeonSuperResolution = threeDSettingsServices.GetRadeonSuperResolution()
+        # radeonSuperResolutionSupported = radeonSuperResolution.IsSupported()
+        enabled = radeonSuperResolution.IsEnabled()
+        decky.logger.info(f"Get Radeon Super Resolution: {enabled}")
+        return enabled
+    
+    async def set_radeon_super_resolution(self, enabled: bool):
+        system = self.adlxHelper.GetSystemServices()
+        threeDSettingsServices = system.Get3DSettingsServices()
+        radeonSuperResolution = threeDSettingsServices.GetRadeonSuperResolution()
+        radeonSuperResolution.SetEnabled(enabled)
+        decky.logger.info(f"Set Radeon Super Resolution: {enabled}")
 
-        # Terminate ADLX
-        ret = adlxHelper.Terminate()
-        decky.logger.info("ADLX Terminate ret is: {}".format(ret))
+    async def get_radeon_super_resolution_sharpness(self):
+        system = self.adlxHelper.GetSystemServices()
+        threeDSettingsServices = system.Get3DSettingsServices()
+        radeonSuperResolution = threeDSettingsServices.GetRadeonSuperResolution()
+        # radeonSuperResolutionSupported = radeonSuperResolution.IsSupported()
+        sharpness = radeonSuperResolution.GetSharpness()
+        decky.logger.info(f"Get Radeon Super Resolution Sharpness: {sharpness}")
+        return sharpness
+    
+    async def set_radeon_super_resolution_sharpness(self, sharpness: int):
+        system = self.adlxHelper.GetSystemServices()
+        threeDSettingsServices = system.Get3DSettingsServices()
+        radeonSuperResolution = threeDSettingsServices.GetRadeonSuperResolution()
+        radeonSuperResolution.SetSharpness(sharpness)
+        decky.logger.info(f"Set Radeon Super Resolution Sharpness: {sharpness}")
+
+    async def get_amd_fluid_motion_frame(self):
+        system = self.adlxHelper.GetSystemServices()
+        threeDSettingsServices1 = system.Get3DSettingsServices1()
+        amdFluidMotionFrame = threeDSettingsServices1.GetAMDFluidMotionFrame()
+        # radeonSuperResolutionSupported = radeonSuperResolution.IsSupported()
+        enabled = amdFluidMotionFrame.IsEnabled()
+        decky.logger.info(f"Get AMD Fluid Motion Frame: {enabled}")
+        return enabled
+    
+    async def set_amd_fluid_motion_frame(self, enabled: bool):
+        system = self.adlxHelper.GetSystemServices()
+        threeDSettingsServices1 = system.Get3DSettingsServices1()
+        amdFluidMotionFrame = threeDSettingsServices1.GetAMDFluidMotionFrame()
+        amdFluidMotionFrame.SetEnabled(enabled)
+        decky.logger.info(f"Set AMD Fluid Motion Frame: {enabled}")
+
+    async def get_radeon_anti_lag(self):
+        system = self.adlxHelper.GetSystemServices()
+        displayService = system.GetDisplaysServices()
+        disList = displayService.GetDisplays()
+        if disList is None:
+            decky.logger.info("No displays found")
+            return False
+        gpu = disList[0].GetGPU()
+        if gpu is None:
+            decky.logger.info("No GPU found for the first display")
+            return False
+        threeDSettingsServices = system.Get3DSettingsServices()
+        antiLag = threeDSettingsServices.GetAntiLag(gpu)
+        enabled = antiLag.IsEnabled()
+        decky.logger.info(f"Get Radeon Anti Lag: {enabled}")
+        return enabled
+    
+    async def set_radeon_anti_lag(self, enabled: bool):
+        system = self.adlxHelper.GetSystemServices()
+        displayService = system.GetDisplaysServices()
+        disList = displayService.GetDisplays()
+        if disList is None:
+            decky.logger.info("No displays found")
+            return False
+        gpu = disList[0].GetGPU()
+        if gpu is None:
+            decky.logger.info("No GPU found for the first display")
+            return False
+        threeDSettingsServices = system.Get3DSettingsServices()
+        antiLag = threeDSettingsServices.GetAntiLag(gpu)
+        antiLag.SetEnabled(enabled)
+        decky.logger.info(f"Set Radeon Anti Lag: {enabled}")
+
+    async def get_radeon_boost(self):
+        system = self.adlxHelper.GetSystemServices()
+        displayService = system.GetDisplaysServices()
+        disList = displayService.GetDisplays()
+        if disList is None:
+            decky.logger.info("No displays found")
+            return False
+        gpu = disList[0].GetGPU()
+        if gpu is None:
+            decky.logger.info("No GPU found for the first display")
+            return False
+        threeDSettingsServices = system.Get3DSettingsServices()
+        boost = threeDSettingsServices.GetBoost(gpu)
+        enabled = boost.IsEnabled()
+        decky.logger.info(f"Get Radeon Boost: {enabled}")
+        return enabled
+    
+    async def set_radeon_boost(self, enabled: bool):
+        system = self.adlxHelper.GetSystemServices()
+        displayService = system.GetDisplaysServices()
+        disList = displayService.GetDisplays()
+        if disList is None:
+            decky.logger.info("No displays found")
+            return False
+        gpu = disList[0].GetGPU()
+        if gpu is None:
+            decky.logger.info("No GPU found for the first display")
+            return False
+        threeDSettingsServices = system.Get3DSettingsServices()
+        boost = threeDSettingsServices.GetBoost(gpu)
+        boost.SetEnabled(enabled)
+        decky.logger.info(f"Set Radeon Boost: {enabled}")
+
+    async def get_radeon_chill(self):
+        system = self.adlxHelper.GetSystemServices()
+        displayService = system.GetDisplaysServices()
+        disList = displayService.GetDisplays()
+        if disList is None:
+            decky.logger.info("No displays found")
+            return False
+        gpu = disList[0].GetGPU()
+        if gpu is None:
+            decky.logger.info("No GPU found for the first display")
+            return False
+        threeDSettingsServices = system.Get3DSettingsServices()
+        chill = threeDSettingsServices.GetChill(gpu)
+        enabled = chill.IsEnabled()
+        decky.logger.info(f"Get Radeon Chill: {enabled}")
+        return enabled
+    
+    async def set_radeon_chill(self, enabled: bool):
+        system = self.adlxHelper.GetSystemServices()
+        displayService = system.GetDisplaysServices()
+        disList = displayService.GetDisplays()
+        if disList is None:
+            decky.logger.info("No displays found")
+            return False
+        gpu = disList[0].GetGPU()
+        if gpu is None:
+            decky.logger.info("No GPU found for the first display")
+            return False
+        threeDSettingsServices = system.Get3DSettingsServices()
+        chill = threeDSettingsServices.GetChill(gpu)
+        chill.SetEnabled(enabled)
+        decky.logger.info(f"Set Radeon Chill: {enabled}")
+
+    async def get_radeon_chill_min_fps(self):
+        system = self.adlxHelper.GetSystemServices()
+        displayService = system.GetDisplaysServices()
+        disList = displayService.GetDisplays()
+        if disList is None:
+            decky.logger.info("No displays found")
+            return False
+        gpu = disList[0].GetGPU()
+        if gpu is None:
+            decky.logger.info("No GPU found for the first display")
+            return False
+        threeDSettingsServices = system.Get3DSettingsServices()
+        chill = threeDSettingsServices.GetChill(gpu)
+        min_fps = chill.GetMinFPS()
+        decky.logger.info(f"Get Radeon Chill Min FPS: {min_fps}")
+        return min_fps
+    
+    async def set_radeon_chill_min_fps(self, min_fps: int):
+        system = self.adlxHelper.GetSystemServices()
+        displayService = system.GetDisplaysServices()
+        disList = displayService.GetDisplays()
+        if disList is None:
+            decky.logger.info("No displays found")
+            return False
+        gpu = disList[0].GetGPU()
+        if gpu is None:
+            decky.logger.info("No GPU found for the first display")
+            return False
+        threeDSettingsServices = system.Get3DSettingsServices()
+        chill = threeDSettingsServices.GetChill(gpu)
+        chill.SetMinFPS(min_fps)
+        decky.logger.info(f"Set Radeon Chill Min FPS: {min_fps}")
+    
+    async def get_radeon_chill_max_fps(self):
+        system = self.adlxHelper.GetSystemServices()
+        displayService = system.GetDisplaysServices()
+        disList = displayService.GetDisplays()
+        if disList is None:
+            decky.logger.info("No displays found")
+            return False
+        gpu = disList[0].GetGPU()
+        if gpu is None:
+            decky.logger.info("No GPU found for the first display")
+            return False
+        threeDSettingsServices = system.Get3DSettingsServices()
+        chill = threeDSettingsServices.GetChill(gpu)
+        max_fps = chill.GetMaxFPS()
+        decky.logger.info(f"Get Radeon Chill Max FPS: {max_fps}")
+        return max_fps
+    
+    async def set_radeon_chill_max_fps(self, max_fps: int):
+        system = self.adlxHelper.GetSystemServices()
+        displayService = system.GetDisplaysServices()
+        disList = displayService.GetDisplays()
+        if disList is None:
+            decky.logger.info("No displays found")
+            return False
+        gpu = disList[0].GetGPU()
+        if gpu is None:
+            decky.logger.info("No GPU found for the first display")
+            return False
+        threeDSettingsServices = system.Get3DSettingsServices()
+        chill = threeDSettingsServices.GetChill(gpu)
+        chill.SetMaxFPS(max_fps)
+        decky.logger.info(f"Set Radeon Chill Max FPS: {max_fps}")
+
+    async def get_gpu_scaling(self):
+        system = self.adlxHelper.GetSystemServices()
+        displayService = system.GetDisplaysServices()
+        disList = displayService.GetDisplays()
+        if disList is None:
+            decky.logger.info("Get GPU Scaling: No displays found")
+            return False
+        display = disList[0]
+        if display is None:
+            decky.logger.info("Get GPU Scaling: No display found???")
+            return False
+        gpuScaling = displayService.GetGPUScaling(display)
+        enabled = gpuScaling.IsEnabled()
+        decky.logger.info(f"Get GPU Scaling: {enabled}")
+        return enabled
+    
+    async def set_gpu_scaling(self, enabled: bool):
+        system = self.adlxHelper.GetSystemServices()
+        displayService = system.GetDisplaysServices()
+        disList = displayService.GetDisplays()
+        if disList is None:
+            decky.logger.info("Set GPU Scaling: No displays found")
+            return False
+        display = disList[0]
+        if display is None:
+            decky.logger.info("Set GPU Scaling: No display found???")
+            return False
+        gpuScaling = displayService.GetGPUScaling(display)
+        decky.logger.info(f"Set GPU Scaling: {enabled}")
+        gpuScaling.SetEnabled(enabled)
+    
+    async def get_scaling_mode(self):
+        system = self.adlxHelper.GetSystemServices()
+        displayService = system.GetDisplaysServices()
+        disList = displayService.GetDisplays()
+        if disList is None:
+            decky.logger.info("No displays found")
+            return False
+        display = disList[0]
+        if display is None:
+            decky.logger.info("No display found???")
+            return False
+        scalingMode = displayService.GetScalingMode(display)
+        mode = scalingMode.GetMode()
+        decky.logger.info("Current scaling mode: {}".format(mode))
+        if mode == ADLX.ADLX_SCALE_MODE.PRESERVE_ASPECT_RATIO:
+            return 0
+        elif mode == ADLX.ADLX_SCALE_MODE.FULL_PANEL:
+            return 1
+        elif mode == ADLX.ADLX_SCALE_MODE.CENTERED:
+            return 2
+        else:
+            decky.logger.info("Unknown scaling mode: {}".format(mode))
+            return 0
+    
+    async def set_scaling_mode(self, mode: int):
+        system = self.adlxHelper.GetSystemServices()
+        displayService = system.GetDisplaysServices()
+        disList = displayService.GetDisplays()
+        if disList is None:
+            decky.logger.info("No displays found")
+            return False
+        display = disList[0]
+        if display is None:
+            decky.logger.info("No display found???")
+            return False
+        scalingMode = displayService.GetScalingMode(display)
+        if mode == 0:
+            decky.logger.info("Set Scaling Mode: PRESERVE_ASPECT_RATIO")
+            scalingMode.SetMode(ADLX.ADLX_SCALE_MODE.PRESERVE_ASPECT_RATIO)
+        elif mode == 1:
+            decky.logger.info("Set Scaling Mode: FULL_PANEL")
+            scalingMode.SetMode(ADLX.ADLX_SCALE_MODE.FULL_PANEL)
+        elif mode == 2:
+            decky.logger.info("Set Scaling Mode: CENTERED")
+            scalingMode.SetMode(ADLX.ADLX_SCALE_MODE.CENTERED)
+        else:
+            decky.logger.info("Set Scaling Mode: Unknown mode \"{}\"".format(mode))
+    
+    async def get_integer_scaling(self):
+        system = self.adlxHelper.GetSystemServices()
+        displayService = system.GetDisplaysServices()
+        disList = displayService.GetDisplays()
+        if disList is None:
+            decky.logger.info("No displays found")
+            return False
+        display = disList[0]
+        if display is None:
+            decky.logger.info("No display found???")
+            return False
+        integerScaling = displayService.GetIntegerScaling(display)
+        enabled = integerScaling.IsEnabled()
+        decky.logger.info(f"Get Integer Scaling: {enabled}")
+        return enabled
+    
+    async def set_integer_scaling(self, enabled: bool):
+        system = self.adlxHelper.GetSystemServices()
+        displayService = system.GetDisplaysServices()
+        disList = displayService.GetDisplays()
+        if disList is None:
+            decky.logger.info("No displays found")
+            return False
+        display = disList[0]
+        if display is None:
+            decky.logger.info("No display found???")
+            return False
+        integerScaling = displayService.GetIntegerScaling(display)
+        integerScaling.SetEnabled(enabled)
+        decky.logger.info(f"Set Integer Scaling: {enabled}")
 
     def record_fps(self, current_tdp, fps):
         if len(self.tdps) == 0:
@@ -576,18 +1024,6 @@ class Plugin:
                 return len(tdp.fps)
         return 0
     
-    # async def find_lower_tdp(self, tdp):
-    #     if len(self.tdps) <= 1:
-    #         return tdp - 1
-        
-    #     lower_tdp = -1
-    #     for idx, last_tdp in enumerate(self.tdps):
-    #         if last_tdp[0] >= tdp:
-    #             continue
-    #         if last_tdp[1] >= self.GOOD:
-    #             continue
-    #         lower_tdp = 
-    
     def num_recorded_fps(self):
         return len(self.tdps)
         
@@ -606,7 +1042,7 @@ class Plugin:
     async def set_auto_tdp(self, enable_auto_tdp):
         self.auto_tdp = enable_auto_tdp
 
-    async def get_fps(self):
+    async def get_fps(self, process_id):
         black_list_apps = ["rustdesk"]
         global last_dwTime0
         # Map shared memory
@@ -632,8 +1068,9 @@ class Plugin:
         
         # decky.logger.info(f'RTSS Shared Memory: Signature={dwSignature} Version={dwVersion:x} AppEntrySize={dwAppEntrySize} AppArrOffset={dwAppArrOffset} AppArrSize={dwAppArrSize} OSDEntrySize={dwOSDEntrySize} OSDArrOffset={dwOSDArrOffset} OSDArrSize={dwOSDArrSize} OSDFrame={dwOSDFrame}')
     
-        fps = 0
-        app_name = 'No'
+        found_fps = 0
+        highest_fps = 0
+        highest_app_process_id = 0
         
         # --- FPS loop (existing code) ---
         for dwEntry in range(dwAppArrSize):
@@ -654,9 +1091,11 @@ class Plugin:
                     if len(black_listed):
                         #decky.logger.info(f'Ignore {raw_app_name} ({pid}): {app_fps:.1f}')
                         continue
-                    if app_fps > fps:
-                        fps = app_fps
-                        app_name = raw_app_name
+                    if pid == process_id:
+                        found_fps = app_fps
+                    if app_fps > highest_fps:
+                        highest_fps = app_fps
+                        highest_app_process_id = pid
                     decky.logger.info(f'[FPS] {raw_app_name} ({pid}): {app_fps:.1f}')
                     last_dwTime0s[pid] = t0
     
@@ -672,7 +1111,10 @@ class Plugin:
         #     decky.logger.info(f'[GPU] OSD entry: osd="{osd}" osdOwner={osdOwner} osdEx="{osdEx[:60]}"')
         
         # decky.logger.info(f"Get FPS: {fps} from {app_name} in {dwAppArrSize} apps")
-        return round(fps), app_name
+        if found_fps > 0:
+            return round(found_fps), process_id
+        else:
+            return round(highest_fps), highest_app_process_id
     
     # async def get_cpu_clock_old(self):
     #     mmap_size = 44
@@ -837,12 +1279,15 @@ class Plugin:
     async def _main(self):
         self.loop = asyncio.get_event_loop()
         setup_hwinfo()
+        self.setup_rtss()
+        await self.init_adlx("_main")
         # self.display_demo()
 
     # Function called first during the unload process, utilize this to handle your plugin being stopped, but not
     # completely removed
     async def _unload(self):
         decky.logger.info("Goodnight World!")
+        await self.deinit_adlx()
         pass
 
     # Function called after `_unload` during uninstall, utilize this to clean up processes and other remnants of your
@@ -909,18 +1354,18 @@ class Plugin:
         decky.logger.info(f"Set brightness to {brightness}")
 
     async def get_osd(self):
-        flags = get_flags()
-        overlay_enabled = flags & rtss_osd_visible_flag
+        flags = self.get_flags()
+        overlay_enabled = flags & self.rtss_osd_visible_flag
         if overlay_enabled == 0:
             osd = 0
         else:
-            if not os.path.exists(rtss_overlay_config_path):
-                decky.logger.info("OverlayEditor.cfg not found at:", rtss_overlay_config_path)
+            if not os.path.exists(self.rtss_overlay_config_path):
+                decky.logger.info("OverlayEditor.cfg not found at:", self.rtss_overlay_config_path)
                 osd = 1
             else:
                 try:
                     found = False
-                    with open(rtss_overlay_config_path, 'r', encoding='utf-8') as f:
+                    with open(self.rtss_overlay_config_path, 'r', encoding='utf-8') as f:
                         for line in f:
                             match = re.match(r"\s*Layout=level_(\d+)\.ovl", line)
                             if match:
@@ -940,7 +1385,7 @@ class Plugin:
     
     async def set_osd(self, value: int):
         enabled = 0 if value == 0 else 1
-        set_flags(rtss_osd_visible_flag, enabled)
+        self.set_flags(self.rtss_osd_visible_flag, enabled)
         if value == 1:
             keyboard.send('ctrl+shift+f1')
         elif value == 2:
@@ -949,45 +1394,48 @@ class Plugin:
             keyboard.send('ctrl+shift+f3')
         elif value == 4:
             keyboard.send('ctrl+shift+f4')
+        # self.overlay_client.post_overlay_message("Load", "", f"level_{value}.ovl")
         
         # Update the overlay configuration file
-        if not os.path.exists(rtss_overlay_config_path):
-            decky.logger.info("OverlayEditor.cfg not found at:", rtss_overlay_config_path)
-        else:
-            try:
-                # Read all lines from the config file
-                with open(rtss_overlay_config_path, 'r', encoding='utf-8') as f:
-                    lines = f.readlines()
+        if not os.path.exists(self.rtss_overlay_config_path):
+            decky.logger.info("OverlayEditor.cfg not found at:", self.rtss_overlay_config_path)
+            with open(self.rtss_overlay_config_path, 'w') as f:
+                pass  # creates an empty file
+        
+        try:
+            # Read all lines from the config file
+            with open(self.rtss_overlay_config_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
 
-                # Replace the Layout line
-                updated_lines = []
-                layout_found = False
-                for line in lines:
-                    if line.strip().startswith("Layout="):
-                        updated_lines.append(f"Layout=level_{value}.ovl\n")
-                        layout_found = True
-                    else:
-                        updated_lines.append(line)
-
-                # If Layout line was not found, optionally add it
-                if not layout_found:
+            # Replace the Layout line
+            updated_lines = []
+            layout_found = False
+            for line in lines:
+                if line.strip().startswith("Layout="):
                     updated_lines.append(f"Layout=level_{value}.ovl\n")
+                    layout_found = True
+                else:
+                    updated_lines.append(line)
 
-                # Write back the updated content
-                with open(rtss_overlay_config_path, 'w', encoding='utf-8') as f:
-                    f.writelines(updated_lines)
-            except Exception as e:
-                decky.logger.info("Error updating config file:", e)
+            # If Layout line was not found, optionally add it
+            if not layout_found:
+                updated_lines.append(f"Layout=level_{value}.ovl\n")
+
+            # Write back the updated content
+            with open(self.rtss_overlay_config_path, 'w', encoding='utf-8') as f:
+                f.writelines(updated_lines)
+        except Exception as e:
+            decky.logger.info("Error updating config file:", e)
         decky.logger.info(f"Set osd: {value}")
 
     async def get_osd_size(self):
-        osd_size = get_property(b"ZoomRatio")
+        osd_size = self.get_property(b"ZoomRatio")
         
         decky.logger.info(f"Get osd size: {osd_size}")
         return osd_size
     
     async def set_osd_size(self, value: int):
-        set_property(b"ZoomRatio", value)
+        self.set_property(b"ZoomRatio", value)
 
         decky.logger.info(f"Set osd size: {value}")
 
@@ -1022,7 +1470,7 @@ class Plugin:
 
         rates = set()
         mode_num = 0
-        common_refresh_rates = [40, 45, 60, 90, 120, 144, 165, 240, 300]
+        common_refresh_rates = [40, 45, 60, 75, 90, 120, 144, 165, 240, 300]
 
         while True:
             try:
@@ -1043,6 +1491,7 @@ class Plugin:
         dm = win32api.EnumDisplaySettings(dev_name, win32con.ENUM_CURRENT_SETTINGS)
 
         decky.logger.info(f"Get refresh rate: {dm.DisplayFrequency}")
+        self.current_refresh_rate = dm.DisplayFrequency
         return dm.DisplayFrequency
 
     async def set_refresh_rate(self, value: int):
@@ -1063,10 +1512,11 @@ class Plugin:
 
             if change_result == win32con.DISP_CHANGE_SUCCESSFUL:
                 decky.logger.info(f"Set refresh rate: {value} Hz")
+                self.current_refresh_rate = value
             elif change_result == win32con.DISP_CHANGE_RESTART:
                 decky.logger.info(f"Set refresh rate: {value} Hz, but a restart is required.")
             else:
-                decky.logger.info(f"Failed to set refresh rate to {value} Hz. Error code: {change_result}")
+                decky.logger.info(f"Set refresh rate: Failed to set to {value} Hz. Error code: {change_result}")
         except pywintypes.error as e:
             decky.logger.error(f"An error occurred: {e}")
 
@@ -1222,7 +1672,8 @@ class Plugin:
     async def system_loop(self, timestamp: int):
         self.SYSTEM_LOOP = timestamp
         while self.SYSTEM_LOOP == timestamp:
-            current_fps, app_name = await self.get_fps()
+            hwnd, process_id, name, exe, title = get_active_window()
+            current_fps, found_process_id = await self.get_fps(process_id)
             cpu_clock, cpu_effective_clock, cpu_usage, gpu_clock, gpu_effective_clock, gpu_usage = await self.get_hwinfo_sensors()
             # decky.logger.info(f"System Statistics fps: {fps} cpu_clock: {cpu_clock} gpu_clock: {gpu_clock} cpu_usage: {cpu_usage} gpu_usage: {gpu_usage}")
             await decky.emit("sytem_statistics_event", current_fps, cpu_clock, cpu_usage, gpu_clock, gpu_usage)
@@ -1232,7 +1683,7 @@ class Plugin:
                     if self.NO_FPS_COUNT >= self.IDLE_NO_FPS_NUM:
                         current_tdp = round(await self.get_tdp_limit(False))
                         if current_tdp != self.AVERAGE_TDP:
-                            decky.logger.info(f"[{self.SYSTEM_LOOP}] Not playing any game, set TDP limit to 16W.")
+                            decky.logger.info(f"[{self.SYSTEM_LOOP}] Not playing any game, set TDP limit to {self.AVERAGE_TDP}W.")
                             await self.set_tdp_limit(self.AVERAGE_TDP)
                         else:
                             decky.logger.info(f"[{self.SYSTEM_LOOP}] Not playing any game.")
@@ -1248,11 +1699,13 @@ class Plugin:
                         decky.logger.info(f"[{self.SYSTEM_LOOP}] FPS is {current_fps} at {current_tdp}W (CPU: {cpu_clock}Mhz {cpu_usage}%, GPU: {gpu_clock}Mhz {gpu_usage}%), wait a little bit longer for FPS to be stable.")
                     else:
                         average_fps = self.find_recorded_fps(current_tdp)
+                        super_well = False
                         super_well_text = ""
-                        if average_fps >= self.BEST:
+                        if average_fps >= self.current_refresh_rate - 1:
                             # self.clear_lower_tdp(current_tdp)
                             super_well_text = "super "
-                        if average_fps >= self.GOOD: # if already at good FPS, we can decrease the TDP.
+                            super_well = True
+                        if average_fps >= round(self.current_refresh_rate * self.GOOD_RATIO): # if already at good FPS, we can decrease the TDP.
                             if current_tdp <= self.MIN_TDP: # if already at lowest TDP, no need to do anything.
                                 decky.logger.info(f"[{self.SYSTEM_LOOP}] Average FPS is {average_fps} at {current_tdp}W (CPU: {cpu_clock}Mhz {cpu_usage}%, GPU: {gpu_clock}Mhz {gpu_usage}%) but already running at min TDP {self.MIN_TDP}W, no need to adjust.")
                             else:
@@ -1260,8 +1713,12 @@ class Plugin:
                                 if less_tdp_fps == self.UNKNOWN:
                                     decky.logger.info(f"[{self.SYSTEM_LOOP}] Running {super_well_text}well ({average_fps}) at {current_tdp}W (CPU: {cpu_clock}Mhz {cpu_usage}%, GPU: {gpu_clock}Mhz {gpu_usage}%), trying to decrease TDP to {current_tdp - 1}W.")
                                     await self.set_tdp_limit(current_tdp - 1)
-                                elif less_tdp_fps < self.BAD:
-                                    decky.logger.info(f"[{self.SYSTEM_LOOP}] Running {super_well_text}well ({average_fps}) at {current_tdp}W (CPU: {cpu_clock}Mhz {cpu_usage}%, GPU: {gpu_clock}Mhz {gpu_usage}%), decrease TDP will affect performance. Keep it now.")
+                                elif less_tdp_fps < round(self.current_refresh_rate * self.BAD_RATIO):
+                                    if super_well:
+                                        decky.logger.info(f"[{self.SYSTEM_LOOP}] Running {super_well_text}well ({average_fps}) at {current_tdp}W (CPU: {cpu_clock}Mhz {cpu_usage}%, GPU: {gpu_clock}Mhz {gpu_usage}%), decrease TDP will affect performance but let's try.")
+                                        await self.set_tdp_limit(current_tdp - 1)
+                                    else:
+                                        decky.logger.info(f"[{self.SYSTEM_LOOP}] Running {super_well_text}well ({average_fps}) at {current_tdp}W (CPU: {cpu_clock}Mhz {cpu_usage}%, GPU: {gpu_clock}Mhz {gpu_usage}%), decrease TDP will affect performance. Keep it now.")
                                 else:
                                     decky.logger.info(f"[{self.SYSTEM_LOOP}] Running {super_well_text}well ({average_fps}) at {current_tdp}W (CPU: {cpu_clock}Mhz {cpu_usage}%, GPU: {gpu_clock}Mhz {gpu_usage}%). Trying to decrease TDP to {current_tdp - 1}.")
                                     await self.set_tdp_limit(current_tdp - 1)

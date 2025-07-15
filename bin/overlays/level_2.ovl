@@ -13,7 +13,7 @@ PingAddr=
 [General]
 Sources=15
 Tables=0
-Layers=9
+Layers=8
 [Source0]
 Name=CPU usage
 Units=%
@@ -179,16 +179,6 @@ BgndColor=80000000
 [Layer5]
 Name=
 Text=|
-PositionX=-118
-PositionY=0
-ExtentX=-2
-ExtentY=-1
-ExtentOrigin=0
-TextColor=9200D1
-BgndColor=80000000
-[Layer6]
-Name=
-Text=|
 PositionX=-8
 PositionY=0
 ExtentX=-2
@@ -196,7 +186,7 @@ ExtentY=-1
 ExtentOrigin=0
 TextColor=9200D1
 BgndColor=80000000
-[Layer7]
+[Layer6]
 Name=
 Text=FPS
 PositionX=-4
@@ -206,7 +196,7 @@ ExtentY=-1
 ExtentOrigin=0
 TextColor=FF0000
 BgndColor=80000000
-[Layer8]
+[Layer7]
 Name=
 Text=|
 PositionX=-16

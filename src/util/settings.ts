@@ -21,6 +21,17 @@ const set_epp = callable<[number], void>('set_epp');
 const set_cpu_clock_limit = callable<[number], void>('set_cpu_clock_limit');
 const set_gpu_clock_limit = callable<[number], void>('set_gpu_clock_limit');
 const set_auto_tdp = callable<[boolean], void>('set_auto_tdp');
+const set_radeon_super_resolution = callable<[boolean], void>('set_radeon_super_resolution');
+const set_radeon_super_resolution_sharpness = callable<[number], void>('set_radeon_super_resolution_sharpness');
+const set_amd_fluid_motion_frame = callable<[boolean], void>('set_amd_fluid_motion_frame');
+const set_radeon_anti_lag = callable<[boolean], void>('set_radeon_anti_lag');
+const set_radeon_boost = callable<[boolean], void>('set_radeon_boost');
+const set_radeon_chill = callable<[boolean], void>('set_radeon_chill');
+const set_radeon_chill_min_fps = callable<[number], void>('set_radeon_chill_min_fps');
+const set_radeon_chill_max_fps = callable<[number], void>('set_radeon_chill_max_fps');
+const set_gpu_scaling = callable<[boolean], void>('set_gpu_scaling');
+const set_scaling_mode = callable<[number], void>('set_scaling_mode');
+const set_integer_scaling = callable<[boolean], void>('set_integer_scaling');
 
 //@JsonObject()
 export class SystemSetting {
@@ -66,6 +77,39 @@ export class SystemSetting {
   //@JsonProperty()
   public autoTDP: boolean;
 
+  //@JsonProperty()
+  public radeonSuperResolution: boolean;
+
+  //@JsonProperty()
+  public radeonSuperResolutionSharpness: number;
+
+  //@JsonProperty()
+  public amdFluidMotionFrame: boolean;
+
+  //@JsonProperty()
+  public radeonAntiLag: boolean;
+
+  //@JsonProperty()
+  public radeonBoost: boolean;
+
+  //@JsonProperty()
+  public radeonChill: boolean;
+
+  //@JsonProperty()
+  public radeonChillMinFPS: number;
+
+  //@JsonProperty()
+  public radeonChillMaxFPS: number;
+
+  //@JsonProperty()
+  public gpuScaling: boolean;
+
+  //@JsonProperty()
+  public scalingMode: number;
+
+  //@JsonProperty()
+  public integerScaling: boolean;
+
   constructor() {
     this.volume = 20;
     this.muted = false;
@@ -82,6 +126,17 @@ export class SystemSetting {
     this.gpuClockLimit = 800;
     this.autoTDP = true;
     set_auto_tdp(true);
+    this.radeonSuperResolution = false;
+    this.radeonSuperResolutionSharpness = 75;
+    this.amdFluidMotionFrame = false;
+    this.radeonAntiLag = false;
+    this.radeonBoost = false;
+    this.radeonChill = false;
+    this.radeonChillMinFPS = 30;
+    this.radeonChillMaxFPS = 60;
+    this.gpuScaling = false;
+    this.scalingMode = 0;
+    this.integerScaling = false;
   }
 
   deepCopy(copyTarget: SystemSetting) {
@@ -100,6 +155,17 @@ export class SystemSetting {
     this.shouldLimitGPUClock = copyTarget.shouldLimitGPUClock;
     this.gpuClockLimit = copyTarget.gpuClockLimit;
     this.autoTDP = copyTarget.autoTDP;
+    this.radeonSuperResolution = copyTarget.radeonSuperResolution;
+    this.radeonSuperResolutionSharpness = copyTarget.radeonSuperResolutionSharpness;
+    this.amdFluidMotionFrame = copyTarget.amdFluidMotionFrame;
+    this.radeonAntiLag = copyTarget.radeonAntiLag;
+    this.radeonBoost = copyTarget.radeonBoost;
+    this.radeonChill = copyTarget.radeonChill;
+    this.radeonChillMinFPS = copyTarget.radeonChillMinFPS;
+    this.radeonChillMaxFPS = copyTarget.radeonChillMaxFPS;
+    this.gpuScaling = copyTarget.gpuScaling;
+    this.scalingMode = copyTarget.scalingMode;
+    this.integerScaling = copyTarget.integerScaling;
   }
 }
 
@@ -407,6 +473,231 @@ export class Settings {
     if (this.instance.system.autoTDP != enableAutoTDP) {
       this.instance.system.autoTDP = enableAutoTDP;
       set_auto_tdp(enableAutoTDP);
+    }
+  }
+
+  static syncRadeonSuperResolution(rsr: boolean) {
+    if (this.instance.system.radeonSuperResolution != rsr) {
+      this.instance.system.radeonSuperResolution = rsr;
+      if (rsr) {
+        if (!Settings.getGPUScaling()) {
+          Settings.syncGPUScaling(true);
+        }
+      }
+    }
+  }
+
+  static getRadeonSuperResolution() {
+    return this.instance.system.radeonSuperResolution;
+  }
+
+  static setRadeonSuperResolution(rsr: boolean) {
+    if (this.instance.system.radeonSuperResolution != rsr) {
+      this.instance.system.radeonSuperResolution = rsr;
+      set_radeon_super_resolution(rsr);
+      if (rsr) {
+        if (!Settings.getGPUScaling()) {
+          Settings.syncGPUScaling(true);
+        }
+      }
+    }
+  }
+
+  static syncRadeonSuperResolutionSharpness(sharpness: number) {
+    if (this.instance.system.radeonSuperResolutionSharpness != sharpness) {
+      this.instance.system.radeonSuperResolutionSharpness = sharpness;
+    }
+  }
+
+  static getRadeonSuperResolutionSharpness() {
+    return this.instance.system.radeonSuperResolutionSharpness;
+  }
+
+  static setRadeonSuperResolutionSharpness(sharpness: number) {
+    if (this.instance.system.radeonSuperResolutionSharpness != sharpness) {
+      this.instance.system.radeonSuperResolutionSharpness = sharpness;
+      set_radeon_super_resolution_sharpness(sharpness);
+    }
+  }
+
+  static syncAMDFluidMotionFrame(afmf: boolean) {
+    if (this.instance.system.amdFluidMotionFrame != afmf) {
+      this.instance.system.amdFluidMotionFrame = afmf;
+    }
+  }
+
+  static getAMDFluidMotionFrame() {
+    return this.instance.system.amdFluidMotionFrame;
+  }
+
+  static setAMDFluidMotionFrame(afmf: boolean) {
+    if (this.instance.system.amdFluidMotionFrame != afmf) {
+      this.instance.system.amdFluidMotionFrame = afmf;
+      set_amd_fluid_motion_frame(afmf);
+    }
+  }
+
+  static syncRadeonAntiLag(antiLag: boolean) {
+    if (this.instance.system.radeonAntiLag != antiLag) {
+      this.instance.system.radeonAntiLag = antiLag;
+    }
+  }
+
+  static getRadeonAntiLag() {
+    return this.instance.system.radeonAntiLag;
+  }
+
+  static setRadeonAntiLag(antiLag: boolean) {
+    if (this.instance.system.radeonAntiLag != antiLag) {
+      this.instance.system.radeonAntiLag = antiLag;
+      set_radeon_anti_lag(antiLag);
+    }
+  }
+
+  static syncRadeonBoost(boost: boolean) {
+    if (this.instance.system.radeonBoost != boost) {
+      this.instance.system.radeonBoost = boost;
+    }
+  }
+
+  static getRadeonBoost() {
+    return this.instance.system.radeonBoost;
+  }
+
+  static setRadeonBoost(boost: boolean) {
+    if (this.instance.system.radeonBoost != boost) {
+      this.instance.system.radeonBoost = boost;
+      set_radeon_boost(boost);
+    }
+  }
+
+  static syncRadeonChill(chill: boolean) {
+    if (this.instance.system.radeonChill != chill) {
+      this.instance.system.radeonChill = chill;
+      if (chill) {
+        if (Settings.getRadeonAntiLag()) {
+          Settings.syncRadeonAntiLag(false);
+        }
+        if (Settings.getRadeonBoost()) {
+          Settings.syncRadeonBoost(false);
+        }
+      }
+    }
+  }
+
+  static getRadeonChill() {
+    return this.instance.system.radeonChill;
+  }
+
+  static setRadeonChill(chill: boolean) {
+    if (this.instance.system.radeonChill != chill) {
+      this.instance.system.radeonChill = chill;
+      set_radeon_chill(chill);
+      if (chill) {
+        if (Settings.getRadeonAntiLag()) {
+          Settings.syncRadeonAntiLag(false);
+        }
+        if (Settings.getRadeonBoost()) {
+          Settings.syncRadeonBoost(false);
+        }
+      }
+    }
+  }
+
+  static syncRadeonChillMinFPS(chillMinFPS: number) {
+    if (this.instance.system.radeonChillMinFPS != chillMinFPS) {
+      this.instance.system.radeonChillMinFPS = chillMinFPS;
+    }
+  }
+
+  static getRadeonChillMinFPS() {
+    return this.instance.system.radeonChillMinFPS;
+  }
+
+  static setRadeonChillMinFPS(chillMinFPS: number) {
+    if (this.instance.system.radeonChillMinFPS != chillMinFPS) {
+      this.instance.system.radeonChillMinFPS = chillMinFPS;
+      set_radeon_chill_min_fps(chillMinFPS);
+    }
+  }
+
+  static syncRadeonChillMaxFPS(chillMaxFPS: number) {
+    if (this.instance.system.radeonChillMaxFPS != chillMaxFPS) {
+      this.instance.system.radeonChillMaxFPS = chillMaxFPS;
+    }
+  }
+
+  static getRadeonChillMaxFPS() {
+    return this.instance.system.radeonChillMaxFPS;
+  }
+
+  static setRadeonChillMaxFPS(chillMaxFPS: number) {
+    if (this.instance.system.radeonChillMaxFPS != chillMaxFPS) {
+      this.instance.system.radeonChillMaxFPS = chillMaxFPS;
+      set_radeon_chill_max_fps(chillMaxFPS);
+    }
+  }
+
+  static syncGPUScaling(gpuScaling: boolean) {
+    if (this.instance.system.gpuScaling != gpuScaling) {
+      this.instance.system.gpuScaling = gpuScaling;
+      // GPU Scaling is required for Radeon Super Resolution
+      if (!gpuScaling) {
+        if (Settings.getRadeonSuperResolution()) {
+          Settings.syncRadeonSuperResolution(false);
+        }
+      }
+    }
+  }
+
+  static getGPUScaling() {
+    return this.instance.system.gpuScaling;
+  }
+
+  static setGPUScaling(gpuScaling: boolean) {
+    if (this.instance.system.gpuScaling != gpuScaling) {
+      this.instance.system.gpuScaling = gpuScaling;
+      set_gpu_scaling(gpuScaling);
+      // GPU Scaling is required for Radeon Super Resolution
+      if (!gpuScaling) {
+        if (Settings.getRadeonSuperResolution()) {
+          Settings.syncRadeonSuperResolution(false);
+        }
+      }
+    }
+  }
+
+  static syncScalingMode(scalingMode: number) {
+    if (this.instance.system.scalingMode != scalingMode) {
+      this.instance.system.scalingMode = scalingMode;
+    }
+  }
+
+  static getScalingMode() {
+    return this.instance.system.scalingMode;
+  }
+
+  static setScalingMode(scalingMode: number) {
+    if (this.instance.system.scalingMode != scalingMode) {
+      this.instance.system.scalingMode = scalingMode;
+      set_scaling_mode(scalingMode);
+    }
+  }
+
+  static syncIntegerScaling(integerScaling: boolean) {
+    if (this.instance.system.integerScaling != integerScaling) {
+      this.instance.system.integerScaling = integerScaling;
+    }
+  }
+
+  static getIntegerScaling() {
+    return this.instance.system.integerScaling;
+  }
+
+  static setIntegerScaling(integerScaling: boolean) {
+    if (this.instance.system.integerScaling != integerScaling) {
+      this.instance.system.integerScaling = integerScaling;
+      set_integer_scaling(integerScaling);
     }
   }
 }

@@ -1,7 +1,7 @@
 {
-  "name": "decky-plugin-template",
-  "version": "0.0.1",
-  "description": "A template to quickly create decky plugins from scratch, based on TypeScript and webpack",
+  "name": "decky-windows-tools",
+  "version": "1.2.0",
+  "description": "A set of tools for modifying Windows settings using Decky Loader for Windows",
   "type": "module",
   "scripts": {
     "build": "rollup -c",
@@ -27,7 +27,7 @@
   "homepage": "https://github.com/SteamDeckHomebrew/decky-plugin-template#readme",
   "devDependencies": {
     "@decky/rollup": "^1.0.1",
-    "@decky/ui": "^4.10.0",
+    "@decky/ui": "^4.10.4",
     "@types/react": "18.3.3",
     "@types/react-dom": "18.3.0",
     "@types/webpack": "^5.28.5",
