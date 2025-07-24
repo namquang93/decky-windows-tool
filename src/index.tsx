@@ -1,5 +1,5 @@
 import {
-  //ButtonItem,
+  ButtonItem,
   PanelSection,
   PanelSectionRow,
   SliderField,
@@ -19,7 +19,7 @@ import {
   // call,
   // routerHook
 } from "@decky/api"
-import { Settings } from "./util";
+import { Settings, LosslessScalingRunState } from "./util";
 import { useState, useEffect } from "react";
 import { FaRegWindowRestore } from "react-icons/fa";
 
@@ -111,6 +111,40 @@ let scalingModes = [
   { data: 1, label: "Full Panel" },
   { data: 2, label: "Center" },
 ];
+let getTargetFPSFunc = callable<[], number>('get_target_fps');
+Settings.syncTargetFPS(await getTargetFPSFunc());
+
+let isLosslessScalingRunningFunc = callable<[], boolean>('is_lossless_scaling_running');
+Settings.syncLosslessScalingState((await isLosslessScalingRunningFunc()) ? LosslessScalingRunState.Running : LosslessScalingRunState.Closed);
+
+let getCurrentGameInfoFunc = callable<[], [string, string]>('get_current_game_info');
+let findLosslessScalingProfileNameFunc = callable<[string], string>('find_lossless_scaling_profile_name');
+let getLosslessScalingProfileNamesFunc = callable<[], string[]>('get_lossless_scaling_profile_names');
+let getLosslessScalingProfileByNameFunc = callable<[string], [boolean, number, number, number, number, boolean, number, number, number, number, number, boolean]>('get_lossless_scaling_profile_by_name');
+let setLosslessScalingProfileByNameFunc = callable<[string, string, string], void>('set_lossless_scaling_profile_by_name')
+
+let losslessScalingFrameGenOptions = [
+  { data: 0, label: "Off" },
+  { data: 1, label: "LSFG3" },
+  { data: 2, label: "LSFG2" },
+  { data: 3, label: "LSFG1" },
+];
+
+let losslessScalingFrameGen3Mode1Options = [
+  { data: 0, label: "FIXED" },
+  { data: 1, label: "ADAPTIVE" }
+];
+
+let losslessScalingFrameGen2ModeOptions = [
+  { data: 0, label: "X2" },
+  { data: 1, label: "X3" },
+  { data: 1, label: "X4" }
+];
+
+let losslessScalingDefaultProfile = "Default"
+
+let addLosslessScalingProfileFunc = callable<[string, string], boolean>('add_lossless_scaling_profile');
+let restartLosslessScalingFunc = callable<[], void>('restart_lossless_scaling');
 
 function Content() {
   // start_syncing_ryzen();
@@ -140,6 +174,25 @@ function Content() {
   const [gpuScaling, setGPUScaling] = useState<boolean>(Settings.getGPUScaling());
   const [scalingMode, setScalingMode] = useState<number>(Settings.getScalingMode());
   const [integerScaling, setIntegerScaling] = useState<boolean>(Settings.getIntegerScaling());
+  const [targetFPS, setTargetFPS] = useState<number>(Settings.getTargetFPS());
+  const [losslessScalingState, setLosslessScalingState] = useState<LosslessScalingRunState>(Settings.getLosslessScalingState());
+  const [currentGameName, setCurrentGameName] = useState<string>("");
+  const [currentGamePath, setCurrentGamePath] = useState<string>("");
+  const [isLosslessScalingConfigured, setIsLosslessScalingConfigured] = useState<boolean>(false);
+  const [losslessScalingProfileNames, setLosslessScalingProfileNames] = useState<string[]>([losslessScalingDefaultProfile]);
+  const [losslessScalingProfileName, setLosslessScalingProfileName] = useState<string>(Settings.getLosslessScalingProfileName());
+  const [autoScale, setAutoScale] = useState<boolean>(Settings.getLosslessScalingAutoScale());
+  const [autoScaleDelay, setAutoScaleDelay] = useState<number>(Settings.getLosslessScalingAutoScaleDelay());
+  const [scalingModeValue, setScalingModeValue] = useState<number>(0);
+  const [scalingFitModeValue, setScalingFitModeValue] = useState<number>(0);
+  const [frameGen, setFrameGen] = useState<number>(Settings.getLosslessScalingFrameGen());
+  const [drawFPS, setDrawFPS] = useState<boolean>(Settings.getLosslessScalingDrawFPS());
+  const [frameGen3Mode1, setFrameGen3Mode1] = useState<number>(Settings.getLosslessScalingFrameGen3Mode1());
+  const [frameGen2Mode, setFrameGen2Mode] = useState<number>(Settings.getLosslessScalingFrameGen2Mode());
+  const [frameGen3Multiplier, setFrameGen3Multiplier] = useState<number>(Settings.getLosslessScalingFrameGen3Multiplier());
+  const [frameGen3Target, setFrameGen3Target] = useState<number>(Settings.getLosslessScalingFrameGen3Target());
+  const [frameGenFlowScale, setFrameGenFlowScale] = useState<number>(Settings.getLosslessScalingFrameGenFlowScale());
+  const [frameGenPerformance, setFrameGenPerformance] = useState<boolean>(Settings.getLosslessScalingFrameGenPerformance());
 
   // Listen to HWInfo
   const [fps, setFPS] = useState<number>(0);
@@ -148,7 +201,23 @@ function Content() {
   const [cpuUsage, setCPUUsage] = useState<number>(50);
   const [gpuClock, setGPUClock] = useState<number>(500);
   const [gpuUsage, setGPUUsage] = useState<number>(50);
-  function onSystemStatistics(newFPS: number, newCPUClock: number, newCPUUsage: number, newGPUClock: number, newGPUUsage: number) {
+  function changeLosslessScalingState(losslessScalingRunning: boolean) {
+    if (losslessScalingRunning) {
+      setLosslessScalingState(LosslessScalingRunState.Running);
+      Settings.syncLosslessScalingState(LosslessScalingRunState.Running);
+    }
+    else {
+      if (losslessScalingState == LosslessScalingRunState.Starting) {
+        console.log("[Frontend] Lossless Scaling is starting");
+      }
+      else {
+        console.log("[Frontend] Lossless Scaling is closed");
+        setLosslessScalingState(LosslessScalingRunState.Closed);
+        Settings.syncLosslessScalingState(LosslessScalingRunState.Closed);
+      }
+    }
+  };
+  function onSystemStatistics(newFPS: number, newCPUClock: number, newCPUUsage: number, newGPUClock: number, newGPUUsage: number, losslessScalingRunning: boolean) {
     console.log("[Frontend] newFPS: ", newFPS, " newCPUClock: ", newCPUClock, " newGPUClock: ", newGPUClock, " new CPUUsage: ", newCPUUsage, " newGPUUsage; ", newGPUUsage);
     setFPS(newFPS);
     setFPSRatio(newFPS * 100.0 / 60)
@@ -156,6 +225,7 @@ function Content() {
     setCPUUsage(newCPUUsage);
     setGPUClock(newGPUClock);
     setGPUUsage(newGPUUsage);
+    changeLosslessScalingState(losslessScalingRunning);
   };
 
   useEffect(() => {
@@ -286,6 +356,16 @@ function Content() {
   }, []);
 
   useEffect(() => {
+    getTargetFPSFunc().then((value) => {
+      console.log("[Frontend] Got target FPS:", value);
+      if (value != 0) {
+        setTargetFPS(value);
+        Settings.syncTargetFPS(value);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
     initADLXFunc("Content").then(() => {
       console.log("[Frontend] ADLX initialized");
 
@@ -357,95 +437,90 @@ function Content() {
     });
   }, []);
 
-  // useEffect(() => {
-  //   getRadeonSuperResolutionFunc().then((value) => {
-  //     console.log("[Frontend] Got Radeon Super Resolution:", value);
-  //     setRadeonSuperResolution(value);
-  //     Settings.syncRadeonSuperResolution(value);
-  //   });
-  // }, []);
+  useEffect(() => {
+    isLosslessScalingRunningFunc().then((value) => {
+      console.log("[Frontend] Lossless Scaling running:", value);
+      changeLosslessScalingState(value);
+    });
+  }, []);
 
-  // useEffect(() => {
-  //   getRadeonSuperResolutionSharpnessFunc().then((value) => {
-  //     console.log("[Frontend] Got Radeon Super Resolution Sharpness:", value);
-  //     setRadeonSuperResolutionSharpness(value);
-  //     Settings.syncRadeonSuperResolutionSharpness(value);
-  //   });
-  // }, []);
+  useEffect(() => {
+    getCurrentGameInfoFunc().then((value) => {
+      console.log("[Frontend] Current game name:", value[0], "Current game path:", value[1]);
+      setCurrentGameName(value[0]);
+      setCurrentGamePath(value[1]);
+    });
+  }, []);
 
-  // useEffect(() => {
-  //   getAMDFluidMotionFrameFunc().then((value) => {
-  //     console.log("[Frontend] Got AMD Fluid Motion Frame:", value);
-  //     setAMDFluidMotionFrame(value);
-  //     Settings.syncAMDFluidMotionFrame(value);
-  //   });
-  // }, []);
+  useEffect(() => {
+    if (currentGamePath.length == 0) {
+        setIsLosslessScalingConfigured(true);
+      }
+      else {
+        findLosslessScalingProfileNameFunc(currentGamePath).then((foundProfileName) => {
+          if (foundProfileName.length == 0) {
+            console.log("[Frontend] Game at path :", currentGamePath, " is not configured");
+            setIsLosslessScalingConfigured(false);
+          }
+          else {
+            console.log("[Frontend] Game at path :", currentGamePath, " is configured");
+            setCurrentGameName(foundProfileName);
+            setLosslessScalingProfileName(foundProfileName);
+            setIsLosslessScalingConfigured(true);
+          }
+        });
+      }
+  }, [currentGamePath]);
 
-  // useEffect(() => {
-  //   getRadeonAntiLagFunc().then((value) => {
-  //     console.log("[Frontend] Got Radeon Anti Lag:", value);
-  //     setRadeonAntiLag(value);
-  //     Settings.syncRadeonAntiLag(value);
-  //   });
-  // }, []);
+  useEffect(() => {
+    getLosslessScalingProfileNamesFunc().then((value) => {
+      console.log("[Frontend] Got profiles:", value.length);
+      setLosslessScalingProfileNames(value);
+    });
+  }, []);
 
-  // useEffect(() => {
-  //   getRadeonBoostFunc().then((value) => {
-  //     console.log("[Frontend] Got Radeon Boost:", value);
-  //     setRadeonBoost(value);
-  //     Settings.syncRadeonBoost(value);
-  //   });
-  // }, []);
+  const onLosslessScalingProfileChanged = (value: [boolean, number, number, number, number, boolean, number, number, number, number, number, boolean]) => {
+    console.log("[Frontend] Got profile:", losslessScalingProfileName, "frame gen:", value[4]);
+      setAutoScale(value[0]);
+      Settings.syncLosslessScalingAutoScale(value[0]);
 
-  // useEffect(() => {
-  //   getRadeonChillFunc().then((value) => {
-  //     console.log("[Frontend] Got Radeon Chill:", value);
-  //     setRadeonChill(value);
-  //     Settings.syncRadeonChill(value);
-  //   });
-  // }, []);
+      setAutoScaleDelay(value[1]);
+      Settings.syncLosslessScalingAutoScaleDelay(value[1]);
 
-  // useEffect(() => {
-  //   getRadeonChillMinFPSFunc().then((value) => {
-  //     console.log("[Frontend] Got Radeon Chill Min FPS:", value);
-  //     setRadeonChillMinFPS(value);
-  //     Settings.syncRadeonChillMinFPS(value);
-  //   });
-  // }, []);
+      setScalingModeValue(value[2]);
+      setScalingFitModeValue(value[3]);
 
-  // useEffect(() => {
-  //   getRadeonChillMaxFPSFunc().then((value) => {
-  //     console.log("[Frontend] Got Radeon Chill Max FPS:", value);
-  //     setRadeonChillMaxFPS(value);
-  //     Settings.syncRadeonChillMaxFPS(value);
-  //   });
-  // }, []);
+      setFrameGen(value[4]);
+      Settings.syncLosslessScalingFrameGen(value[4]);
 
-  // useEffect(() => {
-  //   getGPUScalingFunc().then((value) => {
-  //     console.log("[Frontend] Got GPU Scaling:", value);
-  //     setGPUScaling(value);
-  //     Settings.syncGPUScaling(value);
-  //   });
-  // }, []);
+      setDrawFPS(value[5]);
+      Settings.syncLosslessScalingDrawFPS(value[5]);
 
-  // useEffect(() => {
-  //   getScalingModeFunc().then((value) => {
-  //     console.log("[Frontend] Got Scaling Mode:", value);
-  //     setScalingMode(value);
-  //     Settings.syncScalingMode(value);
-  //   });
-  // }, []);
+      setFrameGen3Mode1(value[6]);
+      Settings.syncLosslessScalingFrameGen3Mode1(value[6]);
 
-  // useEffect(() => {
-  //   getIntegerScalingFunc().then((value) => {
-  //     console.log("[Frontend] Got Integer Scaling:", value);
-  //     setIntegerScaling(value);
-  //     Settings.syncIntegerScaling(value);
-  //   });
-  // }, []);
+      setFrameGen2Mode(value[7]);
+      Settings.syncLosslessScalingFrameGen2Mode(value[7]);
 
-  return [
+      setFrameGen3Multiplier(value[8]);
+      Settings.syncLosslessScalingFrameGen3Multiplier(value[8]);
+
+      setFrameGen3Target(value[9]);
+      Settings.syncLosslessScalingFrameGen3Target(value[9]);
+
+      setFrameGenFlowScale(value[10]);
+      Settings.syncLosslessScalingFrameGenFlowScale(value[10]);
+
+      setFrameGenPerformance(value[11]);
+      Settings.syncLosslessScalingFrameGenPerformance(value[11]);
+  };
+  
+  useEffect(() => {
+    console.log("[Frontend] getLosslessScalingProfileByNameFunc(", losslessScalingProfileName, ")");
+    getLosslessScalingProfileByNameFunc(losslessScalingProfileName).then(onLosslessScalingProfileChanged);
+  }, [losslessScalingProfileName]);
+
+  const sections = [
     <PanelSection title="System">
       <PanelSectionRow>
         <SliderField
@@ -506,8 +581,10 @@ function Content() {
         >
         </DropdownItem>
       </PanelSectionRow>
-    </PanelSection>,
-    <PanelSection title="OSD">
+    </PanelSection>
+  ];
+
+  sections.push(<PanelSection title="OSD">
       <PanelSectionRow>
         <SliderField
           label={"Overlay"}
@@ -546,8 +623,10 @@ function Content() {
           }}>
         </SliderField>
       </PanelSectionRow>
-    </PanelSection>,
-    <PanelSection title="Performance">
+    </PanelSection>);
+  
+  if (autoTDP) {
+    sections.push(<PanelSection title="Auto Performance">
       <PanelSectionRow>
         <ToggleField
           label={"Auto TDP"}
@@ -566,6 +645,50 @@ function Content() {
           }}>
         </ToggleField>
       </PanelSectionRow>
+      <PanelSectionRow>
+        <SliderField
+          label={"Target FPS"}
+          showValue={true}
+          disabled={!autoTDP}
+          min={20}
+          max={refreshRate}
+          value={targetFPS}
+          step={1}
+          valueSuffix="FPS"
+          onChange={(value: number) => {
+            console.log("[Frontend] Target FPS changed to:", value);
+            setTargetFPS(value);
+            Settings.setTargetFPS(value);
+          }}>
+        </SliderField>
+      </PanelSectionRow>
+    </PanelSection>);
+  }
+  else {
+    sections.push(<PanelSection title="Auto Performance">
+      <PanelSectionRow>
+        <ToggleField
+          label={"Auto TDP"}
+          checked={autoTDP}
+          highlightOnFocus={true}
+          onChange={(value: boolean) => {
+            console.log("[Frontend] Auto TDP changed to:", value);
+            setAutoTDP(value);
+            Settings.setAutoTDP(value);
+            if (value) {
+              setShouldLimitCPUClock(false);
+              Settings.setShouldLimitCPUClock(false);
+              setShouldLimitGPUClock(false);
+              Settings.setShouldLimitGPUClock(false);
+            }
+          }}>
+        </ToggleField>
+      </PanelSectionRow>
+    </PanelSection>);
+  }
+  
+  if (!autoTDP) {
+    sections.push(<PanelSection title="Performance Tweak">
       <PanelSectionRow>
         <SliderField
           label={"Max TDP"}
@@ -675,8 +798,10 @@ function Content() {
           }}>
         </SliderField>
       </PanelSectionRow>
-    </PanelSection>,
-    <PanelSection title="AMD">
+    </PanelSection>);
+  }
+  
+  sections.push(<PanelSection title="AMD">
       <PanelSectionRow>
         <ToggleField
           label={"Radeon Super Resolution"}
@@ -880,21 +1005,318 @@ function Content() {
           }}>
         </ToggleField>
       </PanelSectionRow>
-    </PanelSection>,
-    <PanelSection title="Lossless Scaling">
+    </PanelSection>);
+
+  const onClickStartLosslessScaling = async () => {
+    console.log("[Frontend] Starting Lossless Scaling...");
+    setLosslessScalingState(LosslessScalingRunState.Starting);
+    Settings.syncLosslessScalingState(LosslessScalingRunState.Starting);
+    await restartLosslessScalingFunc();
+  };
+
+  const onClickAddProfile = async () => {
+    let addResult = await addLosslessScalingProfileFunc(currentGameName, currentGamePath);
+    if (addResult) {
+      setLosslessScalingProfileNames([...losslessScalingProfileNames, currentGameName]);
+      setLosslessScalingProfileName(currentGameName);
+      Settings.syncLosslessScalingProfileName(currentGameName);
+      setIsLosslessScalingConfigured(true);
+    }
+  }
+  
+  if (losslessScalingState == LosslessScalingRunState.Running) {
+    sections.push(<PanelSection title="Lossless Scaling">
+      <PanelSectionRow>
+        <DropdownItem
+          label={"Profiles"}
+          selectedOption={losslessScalingProfileName}
+          rgOptions={losslessScalingProfileNames.map(profileName => ({
+            data: profileName,
+            label: profileName
+          })) as DropdownOption[]}
+          onChange={(option) => {
+            console.log("[Frontend] Lossless Scaling profile changed to:", option.data);
+            setLosslessScalingProfileName(option.data);
+            Settings.syncLosslessScalingProfileName(option.data);
+            getLosslessScalingProfileByNameFunc(losslessScalingProfileName).then(onLosslessScalingProfileChanged);
+          }}>
+        </DropdownItem>
+      </PanelSectionRow>
+      {
+        !isLosslessScalingConfigured ? 
+        (
+          <PanelSectionRow>
+            <ButtonItem
+              layout={"below"}
+              highlightOnFocus={true}
+              onClick={onClickAddProfile}
+            >
+              {"Add " + currentGameName}
+            </ButtonItem>
+          </PanelSectionRow>
+        )
+        :
+        null
+      }
       <PanelSectionRow>
         <ToggleField
-          label={"Enable"}
-          checked={false}
+          label={"Auto Scale"}
+          checked={autoScale}
           disabled={false}
           highlightOnFocus={true}
           onChange={(value: boolean) => {
-            console.log("[Frontend] Enable Lossless Scaling:", value);
+            console.log("[Frontend] Auto Scale changed to:", value);
+            setAutoScale(value);
+            Settings.syncLosslessScalingAutoScale(value);
+            setLosslessScalingProfileByNameFunc(losslessScalingProfileName, "AutoScale", value ? "true" : "false").then(() => {
+              console.log("[Frontend] Lossless Scaling profile updated with Auto Scale:", value);
+            }).catch((error) => {
+              console.error("[Frontend] Error updating Lossless Scaling profile with Auto Scale:", error);
+            });
           }}>
         </ToggleField>
       </PanelSectionRow>
-    </PanelSection>,
-    <PanelSection title="Monitoring">
+      <PanelSectionRow>
+        <SliderField
+          label={"Auto Scale Delay"}
+          showValue={true}
+          disabled={!autoScale}
+          min={0}
+          max={20}
+          value={autoScaleDelay}
+          step={1}
+          valueSuffix=" Seconds"
+          onChange={(value: number) => {
+            console.log("[Frontend] Auto Scale Delay changed to:", value);
+            setAutoScaleDelay(value);
+            Settings.syncLosslessScalingAutoScaleDelay(value);
+            setLosslessScalingProfileByNameFunc(losslessScalingProfileName, "AutoScaleDelay", value.toString()).then(() => {
+              console.log("[Frontend] Lossless Scaling profile updated with Auto Scale Delay:", value);
+            }).catch((error) => {
+              console.error("[Frontend] Error updating Lossless Scaling profile with Auto Scale Delay:", error);
+            });
+          }}>
+        </SliderField>
+      </PanelSectionRow>
+      <PanelSectionRow>
+        <DropdownItem
+          label={"Frame Gen"}
+          disabled={false}
+          selectedOption={losslessScalingFrameGenOptions.findIndex(option => option.data == frameGen)}
+          rgOptions={losslessScalingFrameGenOptions.map(option => ({
+            data: option.data,
+            label: option.label
+          })) as DropdownOption[]}
+          onChange={(option) => {
+            console.log("[Frontend] Lossless Scaling frame gen changed to:", option.data);
+            setFrameGen(option.data);
+            Settings.syncLosslessScalingFrameGen(option.data);
+            let optionLabel = option.label?.toString() || "Off";
+            setLosslessScalingProfileByNameFunc(losslessScalingProfileName, "FrameGeneration", optionLabel).then(() => {
+              console.log("[Frontend] Lossless Scaling profile updated with Frame Generation:", optionLabel);
+            }).catch((error) => {
+              console.error("[Frontend] Error updating Lossless Scaling profile with Frame Generation:", error);
+            });
+          }}>
+        </DropdownItem>
+      </PanelSectionRow>
+      {
+      frameGen == 1 ?
+        (<PanelSectionRow>
+          <DropdownItem
+            label={"LSFG3 Mode"}
+            disabled={false}
+            selectedOption={losslessScalingFrameGen3Mode1Options.findIndex(option => option.data == frameGen3Mode1)}
+            rgOptions={losslessScalingFrameGen3Mode1Options.map(option => ({
+              data: option.data,
+              label: option.label
+            })) as DropdownOption[]}
+            onChange={(option) => {
+              console.log("[Frontend] Lossless Scaling frame gen 3 mode changed to:", option.data);
+              setFrameGen3Mode1(option.data);
+              Settings.syncLosslessScalingFrameGen3Mode1(option.data);
+              let optionLabel = option.label?.toString() || "FIXED";
+              setLosslessScalingProfileByNameFunc(losslessScalingProfileName, "LSFG3Mode1", optionLabel).then(() => {
+                console.log("[Frontend] Lossless Scaling profile updated with Frame Generation 3:", optionLabel);
+              }).catch((error) => {
+                console.error("[Frontend] Error updating Lossless Scaling profile with Frame Generation 3:", error);
+              });
+            }}>
+          </DropdownItem>
+        </PanelSectionRow>)
+      :
+        (
+          frameGen == 2 ?
+            <PanelSectionRow>
+              <DropdownItem
+                label={"LSFG2 Mode"}
+                disabled={false}
+                selectedOption={losslessScalingFrameGen2ModeOptions.findIndex(option => option.data == frameGen2Mode)}
+                rgOptions={losslessScalingFrameGen2ModeOptions.map(option => ({
+                  data: option.data,
+                  label: option.label
+                })) as DropdownOption[]}
+                onChange={(option) => {
+                  console.log("[Frontend] Lossless Scaling frame gen changed to:", option.data);
+                  setFrameGen2Mode(option.data);
+                  Settings.syncLosslessScalingFrameGen2Mode(option.data);
+                  let optionLabel = option.label?.toString() || "X2";
+                  setLosslessScalingProfileByNameFunc(losslessScalingProfileName, "LSFG2Mode", optionLabel).then(() => {
+                    console.log("[Frontend] Lossless Scaling profile updated with Frame Generation 2:", optionLabel);
+                  }).catch((error) => {
+                    console.error("[Frontend] Error updating Lossless Scaling profile with Frame Generation 2:", error);
+                  });
+                }}>
+              </DropdownItem>
+            </PanelSectionRow>
+            :
+            null
+        )
+      }
+      {
+      frameGen == 1 ? 
+        (
+          frameGen3Mode1 == 0 ? 
+            <SliderField
+              label={"LSFG3 Multiplier"}
+              showValue={true}
+              disabled={false}
+              min={1}
+              max={10}
+              value={frameGen3Multiplier}
+              step={1}
+              valueSuffix="X"
+              onChange={(value: number) => {
+                console.log("[Frontend] LSFG3 Multipler:", value);
+                setFrameGen3Multiplier(value);
+                Settings.syncLosslessScalingFrameGen3Multiplier(value);
+                setLosslessScalingProfileByNameFunc(losslessScalingProfileName, "LSFG3Multiplier", value.toString()).then(() => {
+                  console.log("[Frontend] Lossless Scaling profile updated with LSFG3Multiplier:", value);
+                }).catch((error) => {
+                  console.error("[Frontend] Error updating Lossless Scaling profile with LSFG3Multiplier:", error);
+                });
+              }}>
+            </SliderField>
+            :
+            <SliderField
+              label={"LSFG3 Target"}
+              showValue={true}
+              disabled={false}
+              min={20}
+              max={120}
+              value={frameGen3Target}
+              step={1}
+              valueSuffix=" FPS"
+              onChange={(value: number) => {
+                console.log("[Frontend] LSFG3 Target changed to:", value);
+                setFrameGen3Target(value);
+                Settings.syncLosslessScalingFrameGen3Target(value);
+                setLosslessScalingProfileByNameFunc(losslessScalingProfileName, "LSFG3Target", value.toString()).then(() => {
+                  console.log("[Frontend] Lossless Scaling profile updated with LSFG3Target:", value);
+                }).catch((error) => {
+                  console.error("[Frontend] Error updating Lossless Scaling profile with LSFG3Target:", error);
+                });
+              }}>
+            </SliderField>
+        )
+        :
+        null
+      }
+      {
+      frameGen == 1 || frameGen == 2 ?
+       (
+        <PanelSectionRow>
+          <SliderField
+            label={"Flow Scale"}
+            showValue={true}
+            disabled={false}
+            min={25}
+            max={100}
+            value={frameGenFlowScale}
+            step={5}
+            valueSuffix="%"
+            onChange={(value: number) => {
+              console.log("[Frontend] Flow Ccale changed to:", value);
+              setFrameGenFlowScale(value);
+              Settings.syncLosslessScalingFrameGenFlowScale(value);
+              setLosslessScalingProfileByNameFunc(losslessScalingProfileName, "LSFGFlowScale", value.toString()).then(() => {
+                console.log("[Frontend] Lossless Scaling profile updated with LSFGFlowScale:", value);
+              }).catch((error) => {
+                console.error("[Frontend] Error updating Lossless Scaling profile with LSFGFlowScale:", error);
+              });
+            }}>
+          </SliderField>
+          <ToggleField
+            label={"Performance"}
+            checked={frameGenPerformance}
+            disabled={false}
+            highlightOnFocus={true}
+            onChange={(value: boolean) => {
+              console.log("[Frontend] FrameGen Performance changed to:", value);
+              setFrameGenPerformance(value);
+              Settings.syncLosslessScalingFrameGenPerformance(value);
+              setLosslessScalingProfileByNameFunc(losslessScalingProfileName, "LSFGSize", value ? "PERFORMANCE" : "BALANCED").then(() => {
+                console.log("[Frontend] Lossless Scaling profile updated with LSFGSize:", value);
+              }).catch((error) => {
+                console.error("[Frontend] Error updating Lossless Scaling profile with LSFGSize:", error);
+              });
+            }}>
+          </ToggleField>
+        </PanelSectionRow>
+       )
+       :
+       null 
+      }
+      <PanelSectionRow>
+        <ToggleField
+          label={"Draw FPS"}
+          checked={drawFPS}
+          disabled={false}
+          highlightOnFocus={true}
+          onChange={(value: boolean) => {
+            console.log("[Frontend] Draw FPS changed to:", value);
+            setDrawFPS(value);
+            Settings.syncLosslessScalingDrawFPS(value);
+            setLosslessScalingProfileByNameFunc(losslessScalingProfileName, "DrawFps", value ? "true" : "false").then(() => {
+              console.log("[Frontend] Lossless Scaling profile updated with Draw FPS:", value);
+            }).catch((error) => {
+              console.error("[Frontend] Error updating Lossless Scaling profile with Draw FPS:", error);
+            });
+          }}>
+        </ToggleField>
+      </PanelSectionRow>
+      <PanelSectionRow>
+        <ButtonItem
+          layout={"below"}
+          highlightOnFocus={true}
+          onClick={onClickStartLosslessScaling}
+        >
+          {"Restart Lossless Scaling"}
+        </ButtonItem>
+      </PanelSectionRow>
+    </PanelSection>);
+  }
+  else if (losslessScalingState == LosslessScalingRunState.Starting) {
+    sections.push(<PanelSection title="Starting Lossless Scaling">
+      <PanelSectionRow>
+      </PanelSectionRow>
+    </PanelSection>);
+  }
+  else if (losslessScalingState == LosslessScalingRunState.Closed) {
+    sections.push(<PanelSection title="Lossless Scaling">
+      <PanelSectionRow>
+        <ButtonItem
+          layout={"below"}
+          highlightOnFocus={true}
+          onClick={onClickStartLosslessScaling}
+        >
+          {"Start Lossless Scaling"}
+        </ButtonItem>
+      </PanelSectionRow>
+    </PanelSection>);
+  }
+
+  sections.push(<PanelSection title="Monitoring">
       <PanelSectionRow>
         <ProgressBarWithInfo
           label={"CPU"}
@@ -925,8 +1347,9 @@ function Content() {
           >
         </ProgressBarWithInfo>
       </PanelSectionRow>
-    </PanelSection>
-  ];
+    </PanelSection>);
+
+  return sections;
 };
 
 export default definePlugin(() => {

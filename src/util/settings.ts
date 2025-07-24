@@ -9,6 +9,12 @@ import { callable } from "@decky/api";
 //const SETTINGS_KEY = "DeckyWindowsTools";
 //const serializer = new JsonSerializer();
 
+export enum LosslessScalingRunState {
+  Closed, // assigned 0
+  Starting, // assigned 1
+  Running // assigned 2
+}
+
 const set_volume = callable<[number], void>('set_volume');
 const set_muted = callable<[boolean], void>('set_muted');
 const set_brightness = callable<[number], void>('set_brightness');
@@ -32,6 +38,7 @@ const set_radeon_chill_max_fps = callable<[number], void>('set_radeon_chill_max_
 const set_gpu_scaling = callable<[boolean], void>('set_gpu_scaling');
 const set_scaling_mode = callable<[number], void>('set_scaling_mode');
 const set_integer_scaling = callable<[boolean], void>('set_integer_scaling');
+const set_target_fps = callable<[number], void>('set_target_fps');
 
 //@JsonObject()
 export class SystemSetting {
@@ -110,6 +117,45 @@ export class SystemSetting {
   //@JsonProperty()
   public integerScaling: boolean;
 
+  //@JsonProperty()
+  public targetFPS: number;
+
+  //@JsonProperty()
+  public losslessScalingState: LosslessScalingRunState;
+
+  //@JsonProperty()
+  public losslessScalingProfileName: string;
+
+  //@JsonProperty()
+  public losslessScalingAutoScale: boolean;
+
+  //@JsonProperty()
+  public losslessScalingAutoScaleDelay: number;
+
+  //@JsonProperty()
+  public losslessScalingFrameGen: number;
+
+  //@JsonProperty()
+  public drawFPS: boolean;
+
+  //@JsonProperty()
+  public losslessScalingFrameGen3Mode1: number;
+
+  //@JsonProperty()
+  public losslessScalingFrameGen2Mode: number;
+
+  //@JsonProperty()
+  public losslessScalingFrameGen3Multiplier: number;
+
+  //@JsonProperty()
+  public losslessScalingFrameGen3Target: number;
+
+  //@JsonProperty()
+  public losslessScalingFrameGenFlowScale: number;
+
+  //@JsonProperty()
+  public losslessScalingFrameGenPerformance: boolean;
+
   constructor() {
     this.volume = 20;
     this.muted = false;
@@ -137,6 +183,19 @@ export class SystemSetting {
     this.gpuScaling = false;
     this.scalingMode = 0;
     this.integerScaling = false;
+    this.targetFPS = 60;
+    this.losslessScalingState = LosslessScalingRunState.Closed;
+    this.losslessScalingProfileName = "Default";
+    this.losslessScalingAutoScale = false;
+    this.losslessScalingAutoScaleDelay = 0;
+    this.losslessScalingFrameGen = 0;
+    this.drawFPS = false;
+    this.losslessScalingFrameGen3Mode1 = 0;
+    this.losslessScalingFrameGen2Mode = 0;
+    this.losslessScalingFrameGen3Multiplier = 2;
+    this.losslessScalingFrameGen3Target = 60;
+    this.losslessScalingFrameGenFlowScale = 75;
+    this.losslessScalingFrameGenPerformance = true;
   }
 
   deepCopy(copyTarget: SystemSetting) {
@@ -166,6 +225,19 @@ export class SystemSetting {
     this.gpuScaling = copyTarget.gpuScaling;
     this.scalingMode = copyTarget.scalingMode;
     this.integerScaling = copyTarget.integerScaling;
+    this.targetFPS = copyTarget.targetFPS;
+    this.losslessScalingState = copyTarget.losslessScalingState;
+    this.losslessScalingProfileName = copyTarget.losslessScalingProfileName;
+    this.losslessScalingAutoScale = copyTarget.losslessScalingAutoScale;
+    this.losslessScalingAutoScaleDelay = copyTarget.losslessScalingAutoScaleDelay;
+    this.losslessScalingFrameGen = copyTarget.losslessScalingFrameGen;
+    this.drawFPS = copyTarget.drawFPS;
+    this.losslessScalingFrameGen3Mode1 = copyTarget.losslessScalingFrameGen3Mode1;
+    this.losslessScalingFrameGen2Mode = copyTarget.losslessScalingFrameGen2Mode;
+    this.losslessScalingFrameGen3Multiplier = copyTarget.losslessScalingFrameGen3Multiplier;
+    this.losslessScalingFrameGen3Target = copyTarget.losslessScalingFrameGen3Target;
+    this.losslessScalingFrameGenFlowScale = copyTarget.losslessScalingFrameGenFlowScale;
+    this.losslessScalingFrameGenPerformance = copyTarget.losslessScalingFrameGenPerformance;
   }
 }
 
@@ -698,6 +770,143 @@ export class Settings {
     if (this.instance.system.integerScaling != integerScaling) {
       this.instance.system.integerScaling = integerScaling;
       set_integer_scaling(integerScaling);
+    }
+  }
+
+  static syncTargetFPS(fps: number) {
+    if (this.instance.system.targetFPS != fps) {
+      this.instance.system.targetFPS = fps;
+    }
+  }
+
+  static getTargetFPS() {
+    return this.instance.system.targetFPS;
+  }
+
+  static setTargetFPS(fps: number) {
+    if (this.instance.system.targetFPS != fps) {
+      this.instance.system.targetFPS = fps;
+      set_target_fps(fps);
+    }
+  }
+
+  static syncLosslessScalingState(state: LosslessScalingRunState) {
+    if (this.instance.system.losslessScalingState != state) {
+      this.instance.system.losslessScalingState = state;
+    }
+  }
+
+  static getLosslessScalingState() {
+    return this.instance.system.losslessScalingState;
+  }
+
+  static syncLosslessScalingProfileName(profileName: string) {
+    if (this.instance.system.losslessScalingProfileName != profileName) {
+      this.instance.system.losslessScalingProfileName = profileName;
+    }
+  }
+
+  static getLosslessScalingProfileName() {
+    return this.instance.system.losslessScalingProfileName;
+  }
+
+  static syncLosslessScalingAutoScale(autoScale: boolean) {
+    if (this.instance.system.losslessScalingAutoScale != autoScale) {
+      this.instance.system.losslessScalingAutoScale = autoScale;
+    }
+  }
+
+  static getLosslessScalingAutoScale() {
+    return this.instance.system.losslessScalingAutoScale;
+  }
+
+  static syncLosslessScalingAutoScaleDelay(autoScaleDelay: number) {
+    if (this.instance.system.losslessScalingAutoScaleDelay != autoScaleDelay) {
+      this.instance.system.losslessScalingAutoScaleDelay = autoScaleDelay;
+    }
+  }
+
+  static getLosslessScalingAutoScaleDelay() {
+    return this.instance.system.losslessScalingAutoScaleDelay;
+  }
+
+  static syncLosslessScalingFrameGen(frameGen: number) {
+    if (this.instance.system.losslessScalingFrameGen != frameGen) {
+      this.instance.system.losslessScalingFrameGen = frameGen;
+    }
+  }
+
+  static getLosslessScalingFrameGen() {
+    return this.instance.system.losslessScalingFrameGen;
+  }
+
+  static getLosslessScalingDrawFPS() {
+    return this.instance.system.drawFPS;
+  }
+
+  static syncLosslessScalingDrawFPS(drawFPS: boolean) {
+    if (this.instance.system.drawFPS != drawFPS) {
+      this.instance.system.drawFPS = drawFPS;
+    }
+  }
+
+  static getLosslessScalingFrameGen3Mode1() {
+    return this.instance.system.losslessScalingFrameGen3Mode1;
+  }
+
+  static syncLosslessScalingFrameGen3Mode1(frameGen3Mode1: number) {
+    if (this.instance.system.losslessScalingFrameGen3Mode1 != frameGen3Mode1) {
+      this.instance.system.losslessScalingFrameGen3Mode1 = frameGen3Mode1;
+    }
+  }
+
+  static getLosslessScalingFrameGen2Mode() {
+    return this.instance.system.losslessScalingFrameGen2Mode;
+  }
+
+  static syncLosslessScalingFrameGen2Mode(frameGen2Mode: number) {
+    if (this.instance.system.losslessScalingFrameGen2Mode != frameGen2Mode) {
+      this.instance.system.losslessScalingFrameGen2Mode = frameGen2Mode;
+    }
+  }
+
+  static getLosslessScalingFrameGen3Multiplier() {
+    return this.instance.system.losslessScalingFrameGen3Multiplier;
+  }
+
+  static syncLosslessScalingFrameGen3Multiplier(frameGen3Multiplier: number) {
+    if (this.instance.system.losslessScalingFrameGen3Multiplier != frameGen3Multiplier) {
+      this.instance.system.losslessScalingFrameGen3Multiplier = frameGen3Multiplier;
+    }
+  }
+
+  static getLosslessScalingFrameGen3Target() {
+    return this.instance.system.losslessScalingFrameGen3Target;
+  }
+
+  static syncLosslessScalingFrameGen3Target(frameGen3Target: number) {
+    if (this.instance.system.losslessScalingFrameGen3Target != frameGen3Target) {
+      this.instance.system.losslessScalingFrameGen3Target = frameGen3Target;
+    }
+  }
+
+  static getLosslessScalingFrameGenFlowScale() {
+    return this.instance.system.losslessScalingFrameGenFlowScale;
+  }
+
+  static syncLosslessScalingFrameGenFlowScale(frameGenFlowScale: number) {
+    if (this.instance.system.losslessScalingFrameGenFlowScale != frameGenFlowScale) {
+      this.instance.system.losslessScalingFrameGenFlowScale = frameGenFlowScale;
+    }
+  }
+
+  static getLosslessScalingFrameGenPerformance() {
+    return this.instance.system.losslessScalingFrameGenPerformance;
+  }
+
+  static syncLosslessScalingFrameGenPerformance(frameGenPerformance: boolean) {
+    if (this.instance.system.losslessScalingFrameGenPerformance != frameGenPerformance) {
+      this.instance.system.losslessScalingFrameGenPerformance = frameGenPerformance;
     }
   }
 }

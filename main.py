@@ -17,6 +17,7 @@ import mmap
 import struct
 import platform
 import sys
+import copy
 decky.logger.info(f"Platform: {platform.architecture()}")
 decky.logger.info(f"Platform: {platform.python_implementation()}")
 decky.logger.info(f"Version: {sys.version}")
@@ -48,6 +49,8 @@ from ctypes.wintypes import *
 from shutil import copyfile
 from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+import xml2.etree.ElementTree as ET
+from enum import Enum
 # from overlay_editor_client import OverlayEditorClient
 
 ryzenadj_lib_path = os.path.dirname(os.path.abspath(__file__))
@@ -163,6 +166,12 @@ def restart_process(process_name):
 
 def is_process_running(process_name):
     return process_name in (p.name() for p in psutil.process_iter())
+
+def find_process_by_name(process_name) -> psutil.Process | None:
+    for proc in psutil.process_iter():
+        if proc.name().lower() == process_name.lower():
+            return proc
+    return None
 
 def get_active_window():
     hwnd = win32gui.GetForegroundWindow()
@@ -411,6 +420,71 @@ def setup_hwinfo():
             except FileNotFoundError:
                 decky.logger.info("[HWInfo] HWiNFO not found at C:\Program Files\HWiNFO64\HWiNFO64.EXE. Make sure it's installed.")
 
+# This is for determining game name based on the path.
+unlikely_game_names = ["bin", "x64", "binaries", "win64"]
+
+def find_game_name_from_path(game_path: str):
+    steam_game_folder = "steamapps\\common\\"
+    slash = "\\"
+    # something like "D:\SteamLibrary\steamapps\common\BlackMythWukong\b1.exe"
+    if steam_game_folder in game_path:
+        start_index = game_path.index(steam_game_folder) + len(steam_game_folder)
+        end_index = game_path.index(slash, start_index)
+        return game_path[start_index:end_index]
+    
+    max_depth = 20
+    path = game_path
+    if path.lower().endswith(".exe"):
+        path = os.path.dirname(game_path)
+    game_name: str = ""
+    while max_depth >= 0:
+        game_name = os.path.basename(path)
+        if game_name not in unlikely_game_names:
+            return game_name
+    return "Unknown Game"
+
+lossless_scaling_modes = {
+    "Auto": 0,
+    "Custom": 1
+}
+
+lossless_scaling_fitmodes = {
+    "AspectRatio": 0,
+    "Fullscreen": 1
+}
+
+lossless_scaling_framegens = {
+    "Off": 0,
+    "LSFG3": 1,
+    "LSFG2": 2,
+    "LSFG1": 3
+}
+
+lossless_scaling_types = {
+    "Off": 0,
+    "LS1": 1,
+    "FSR": 2,
+    "NIS": 3,
+    "SGSR": 4,
+    "BCAS": 5,
+    "Anime4K": 6,
+    "xBR": 7,
+    "SharpBilinear": 8,
+    "Integer": 9,
+    "NearestNeighbor": 10
+}
+
+lossless_scaling_lsfg3_mode1s = {
+    "FIXED": 0,
+    "ADAPTIVE": 1,
+}
+
+lossless_scaling_lsfg2_modes = {
+    "X2": 0,
+    "X3": 1,
+    "X4": 1,
+}
+
 class TDP:
     tdp: int
     fps: list[int]
@@ -423,7 +497,7 @@ class TDP:
 class Plugin:
     auto_tdp: bool = False
     tdps: list[TDP] = []
-    current_refresh_rate: int = 60
+    target_fps: int = 60
 
     # FPS values
     UNKNOWN: int = -1
@@ -452,6 +526,13 @@ class Plugin:
     # ADLX
     adlxHelper: ADLX.ADLXHelper = None
     adlxStatus: ADLX.ADLX_RESULT
+
+    # Lossless Scaling
+    LOSSLESS_SCALING_PATH: str = b"C:\Program Files (x86)\Steam\steamapps\common\Lossless Scaling\LosslessScaling.exe"
+    LOSSLESS_SCALING_NAME: str = "LosslessScaling.exe"
+    current_game_name: str = ""
+    current_game_path: str = ""
+    LOSSLESS_SCALING_SETTINGS_PATH: str = os.path.join(os.path.expandvars(r'%LOCALAPPDATA%'), "Lossless Scaling", "Settings.xml")
 
     def setup_rtss(self):
         # RTSS
@@ -585,6 +666,203 @@ class Plugin:
         rtss_update_profile_func = self.rtss_lib.__getattr__("UpdateProfiles")
         rtss_update_profile_func.argtypes = []
         rtss_update_profile_func()
+
+    async def is_lossless_scaling_running(self):
+        lossless_scaling_process = find_process_by_name(self.LOSSLESS_SCALING_NAME)
+        if lossless_scaling_process is None:
+            # decky.logger.info("Lossless Scaling is not running")
+            return False
+        else:
+            # decky.logger.info("Lossless Scaling is running")
+            return True
+        
+    async def find_lossless_scaling_profile_name(self, game_path: str):
+        decky.logger.info(f"Find {game_path} in Lossless Scaling")
+        tree = ET.parse(self.LOSSLESS_SCALING_SETTINGS_PATH)
+        root = tree.getroot()
+        game_profiles = root.find("GameProfiles")
+        for element in game_profiles.iter("Profile"):
+            path_element = element.find("Path")
+            if path_element is None:
+                continue
+            if path_element.text.lower() == game_path.lower():
+                decky.logger.info(f"Game at path {game_path} has profile in Lossless Scaling")
+                return element.find("Title").text
+        decky.logger.info(f"Game at path {game_path} doesn't have profile in Lossless Scaling")
+        return ""
+
+    async def get_lossless_scaling_profile_names(self):
+        tree = ET.parse(self.LOSSLESS_SCALING_SETTINGS_PATH)
+        root = tree.getroot()
+        game_profiles = root.find("GameProfiles")
+        config_names = []
+        for element in game_profiles.iter("Profile"):
+            config_names.append(element.find("Title").text)
+        return config_names
+    
+    async def get_lossless_scaling_profile_by_name(self, game_name: str):
+        tree = ET.parse(self.LOSSLESS_SCALING_SETTINGS_PATH)
+        root = tree.getroot()
+        game_profiles = root.find("GameProfiles")
+        game_profile: ET.Element = None
+        for element in game_profiles.iter("Profile"):
+            if element.find("Title").text.lower() == game_name.lower():
+                game_profile = element
+                break
+        if game_profile is None:
+            decky.logger.info(f"Lossless Scaling profile for {game_name} not found")
+            return False, 0, 0, 0, 0, 0
+        auto_scale = True if game_profile.find("AutoScale").text.lower() == "true" else False
+        scaling_mode_text = game_profile.find("ScalingMode").text
+        try:
+            scaling_mode = lossless_scaling_modes[scaling_mode_text]
+        except KeyError:
+            print(f"'{scaling_mode_text}' is not a valid Lossless Scaling mode?")
+            scaling_mode = 0
+        scaling_fit_mode_text = game_profile.find("ScalingFitMode").text
+        try:
+            scaling_fit_mode = lossless_scaling_fitmodes[scaling_fit_mode_text]
+        except KeyError:
+            print(f"'{scaling_fit_mode_text}' is not a valid Lossless Scaling fit mode?")
+            scaling_fit_mode = 0
+        frame_gen_text = game_profile.find("FrameGeneration").text
+        try:
+            frame_gen = lossless_scaling_framegens[frame_gen_text]
+        except KeyError:
+            print(f"'{frame_gen_text}' is not a valid Lossless Scaling frame gen?")
+            frame_gen = 0
+        
+        auto_scale_delay_text = game_profile.find("AutoScaleDelay").text
+        try:
+            auto_scale_delay = int(auto_scale_delay_text)
+        except ValueError:
+            print(f"'{auto_scale_delay_text}' is not a valid integer for AutoScaleDelay")
+            auto_scale_delay = 3
+        
+        lsfg3_mode1_text = game_profile.find("LSFG3Mode1").text
+        try:
+            lsfg3_mode1 = lossless_scaling_lsfg3_mode1s[lsfg3_mode1_text]
+        except ValueError:
+            print(f"'{lsfg3_mode1_text}' is not a valid integer for LSFG3Mode1")
+            lsfg3_mode1 = 0
+
+        lsfg2_mode_text = game_profile.find("LSFG2Mode").text
+        try:
+            lsfg2_mode = lossless_scaling_lsfg2_modes[lsfg2_mode_text]
+        except ValueError:
+            print(f"'{lsfg2_mode_text}' is not a valid integer for LSFG2Mode")
+            lsfg2_mode = 0
+
+        lsgf3_multiplier_text = game_profile.find("LSFG3Multiplier").text
+        try:
+            lsgf3_multiplier = int(lsgf3_multiplier_text)
+        except ValueError:
+            print(f"'{lsgf3_multiplier_text}' is not a valid integer for LSFG3Multiplier")
+            lsgf3_multiplier = 2
+
+        lsgf3_target_text = game_profile.find("LSFG3Target").text
+        try:
+            lsgf3_target = int(lsgf3_target_text)
+        except ValueError:
+            print(f"'{lsgf3_target_text}' is not a valid integer for LSFG3Target")
+            lsgf3_target = 60
+
+        lsfg_flow_scale_text = game_profile.find("LSFGFlowScale").text
+        try:
+            lsfg_flow_scale = int(lsfg_flow_scale_text)
+        except ValueError:
+            print(f"'{lsfg_flow_scale_text}' is not a valid integer for LSFGFlowScale")
+            lsfg_flow_scale = 75
+
+        lsfg_performance = True if game_profile.find("LSFGSize").text.lower() == "performance" else False
+        
+        # decky.logger.info(f"Lossless Scaling config for {game_name} is: auto_scale=\"{auto_scale}\" auto_scale_delay=\"{auto_scale_delay}\" frame_gen=\"{frame_gen}\"")
+        draw_fps = True if game_profile.find("DrawFps").text.lower() == "true" else False
+        return auto_scale, auto_scale_delay, scaling_mode, scaling_fit_mode, frame_gen, draw_fps, lsfg3_mode1, lsfg2_mode, lsgf3_multiplier, lsgf3_target, lsfg_flow_scale, lsfg_performance
+
+    async def set_lossless_scaling_profile_by_name(self, game_name: str, config_name: str, config_value: str):
+        tree = ET.parse(self.LOSSLESS_SCALING_SETTINGS_PATH)
+        root = tree.getroot()
+        game_profiles = root.find("GameProfiles")
+        game_profile: ET.Element = None
+        for element in game_profiles.iter("Profile"):
+            if element.find("Title").text.lower() == game_name.lower():
+                game_profile = element
+                break
+        if game_profile is None:
+            decky.logger.info(f"Lossless Scaling profile for {game_name} not found")
+            return
+        game_profile.find(config_name).text = config_value
+        tree.write(self.LOSSLESS_SCALING_SETTINGS_PATH, encoding='utf-8', xml_declaration=True)
+        decky.logger.info(f"Set Lossless Scaling config for {game_name} {config_name} to {config_value}")
+
+    async def add_lossless_scaling_profile(self, game_name: str, game_path: str):
+        tree = ET.parse(self.LOSSLESS_SCALING_SETTINGS_PATH)
+        root = tree.getroot()
+        game_profiles: ET.Element = root.find("GameProfiles")
+        default_profile: ET.Element = None
+        for element in game_profiles.iter("Profile"):
+            if element.find("Title").text.lower() == "default":
+                default_profile = element
+        if default_profile is None:
+            decky.logger.info("No Default profile???")
+            return False
+        new_game_profile = copy.deepcopy(default_profile)
+        if new_game_profile is None:
+            decky.logger.info(f"Can't add profile {game_name}")
+            return False
+        new_game_profile.find("Title").text = game_name
+        path_element = ET.Element("Path")
+        path_element.text = game_path
+        new_game_profile.insert(1, path_element)
+        game_profiles.append(new_game_profile)
+        ET.indent(tree, '  ')
+        tree.write(self.LOSSLESS_SCALING_SETTINGS_PATH, encoding='utf-8', xml_declaration=True)
+        decky.logger.info(f"Add Lossless Scaling profile for {game_name} at {game_path}")
+        return True
+    
+    async def restart_lossless_scaling(self):
+        lossless_scaling_running_process = find_process_by_name(self.LOSSLESS_SCALING_NAME)
+        if lossless_scaling_running_process is not None:
+            decky.logger.info("Lossless Scaling is running, restarting it")
+            lossless_scaling_running_process.kill()
+            await asyncio.sleep(1)
+        decky.logger.info("Starting Lossless Scaling")
+        try:
+            subprocess.run([self.LOSSLESS_SCALING_PATH], check=True, timeout=1, shell=True)
+            decky.logger.info("Lossless Scaling started successfully")
+        except subprocess.TimeoutExpired as e:
+            decky.logger.info(f"Lossless Scaling startup timed out: {e}")
+        except FileNotFoundError:
+            decky.logger.info("Lossless Scaling executable not found. Please ensure Lossless Scaling is installed correctly.")
+        except subprocess.CalledProcessError as e:
+            decky.logger.info(f"Error: Command '{e.cmd}' returned non-zero exit status {e.returncode}.")
+        
+        lossless_scaling_startup_timer = 0
+        while lossless_scaling_startup_timer < 5:
+            lossless_scaling_running_process = find_process_by_name(self.LOSSLESS_SCALING_NAME)
+            if lossless_scaling_running_process is not None:
+                decky.logger.info("Lossless Scaling started successfully")
+                break
+            else:
+                decky.logger.info("Waiting for Lossless Scaling to start")
+                await asyncio.sleep(0.5)
+                lossless_scaling_startup_timer += 0.5
+        lossless_scaling_close_window_timer = 0
+        while lossless_scaling_close_window_timer < 5:
+            window_handle = win32gui.FindWindow(None, "Lossless Scaling")
+            if window_handle != 0:  # Check if the window was found
+                win32gui.PostMessage(window_handle, win32con.WM_CLOSE, 0, 0)
+                decky.logger.info("Lossless Scaling window closed")
+                break
+            else:
+                decky.logger.info("Waiting for Lossless Scaling window")
+                await asyncio.sleep(0.5)
+                lossless_scaling_close_window_timer += 0.5
+    
+    async def get_current_game_info(self):
+        # decky.logger.info(f"Get game: {self.current_game_name} at {self.current_game_path}")
+        return self.current_game_name, self.current_game_path
     
     async def init_adlx(self, location: str):
         # Get ADLXHelp and ADLX initialization
@@ -1069,8 +1347,10 @@ class Plugin:
         # decky.logger.info(f'RTSS Shared Memory: Signature={dwSignature} Version={dwVersion:x} AppEntrySize={dwAppEntrySize} AppArrOffset={dwAppArrOffset} AppArrSize={dwAppArrSize} OSDEntrySize={dwOSDEntrySize} OSDArrOffset={dwOSDArrOffset} OSDArrSize={dwOSDArrSize} OSDFrame={dwOSDFrame}')
     
         found_fps = 0
+        found_app_name = ""
         highest_fps = 0
         highest_app_process_id = 0
+        highest_app_name = ""
         
         # --- FPS loop (existing code) ---
         for dwEntry in range(dwAppArrSize):
@@ -1093,9 +1373,11 @@ class Plugin:
                         continue
                     if pid == process_id:
                         found_fps = app_fps
+                        found_app_name = raw_app_name
                     if app_fps > highest_fps:
                         highest_fps = app_fps
                         highest_app_process_id = pid
+                        highest_app_name = raw_app_name
                     decky.logger.info(f'[FPS] {raw_app_name} ({pid}): {app_fps:.1f}')
                     last_dwTime0s[pid] = t0
     
@@ -1112,9 +1394,9 @@ class Plugin:
         
         # decky.logger.info(f"Get FPS: {fps} from {app_name} in {dwAppArrSize} apps")
         if found_fps > 0:
-            return round(found_fps), process_id
+            return round(found_fps), process_id, found_app_name
         else:
-            return round(highest_fps), highest_app_process_id
+            return round(highest_fps), highest_app_process_id, highest_app_name
     
     # async def get_cpu_clock_old(self):
     #     mmap_size = 44
@@ -1343,13 +1625,20 @@ class Plugin:
         decky.logger.info(f"Set mute: {mute}")
 
     async def get_brightness(self):
-        brightness = sbc.get_brightness(display=0)[0]
+        try:
+            brightness = sbc.get_brightness(display=0)[0]
+        except Exception as e:
+            brightness = 100
+            decky.logger.info(f"Can't get brightness {e}")
 
         decky.logger.info(f"Get brightness: {brightness}")
         return brightness
 
     async def set_brightness(self, brightness: int):
-        sbc.set_brightness(brightness, display=0)
+        try:
+            sbc.set_brightness(brightness, display=0)
+        except Exception as e:
+            decky.logger.info(f"Can't set brightness {e}")
 
         decky.logger.info(f"Set brightness to {brightness}")
 
@@ -1464,35 +1753,42 @@ class Plugin:
         decky.logger.info(f"Set gpu clock: {value} MHz")
 
     async def get_refresh_rates(self):
-        # Get primary display device
-        dev = win32api.EnumDisplayDevices(None, 0)
-        dev_name = dev.DeviceName
+        try:
+            # Get primary display device
+            dev = win32api.EnumDisplayDevices(None, 0)
+            dev_name = dev.DeviceName
 
-        rates = set()
-        mode_num = 0
-        common_refresh_rates = [40, 45, 60, 75, 90, 120, 144, 165, 240, 300]
+            rates = set()
+            mode_num = 0
+            common_refresh_rates = [40, 45, 60, 75, 90, 120, 144, 165, 240, 300]
 
-        while True:
-            try:
-                dm = win32api.EnumDisplaySettings(dev_name, mode_num)
-            except Exception:
-                break
-            freq = dm.DisplayFrequency
-            if freq in common_refresh_rates:
-                rates.add(freq)
-            mode_num += 1
-        
-        decky.logger.info(f"Found {len(rates)} supported refresh rates of the screen")
-        return sorted(rates)
+            while True:
+                try:
+                    dm = win32api.EnumDisplaySettings(dev_name, mode_num)
+                except Exception:
+                    break
+                freq = dm.DisplayFrequency
+                if freq in common_refresh_rates:
+                    rates.add(freq)
+                mode_num += 1
+            
+            decky.logger.info(f"Found {len(rates)} supported refresh rates of the screen")
+            return sorted(rates)
+        except Exception as e:
+            decky.logger.info(f"Can't get available refresh rates {e}")
+            return [60]
 
     async def get_refresh_rate(self):
-        dev = win32api.EnumDisplayDevices(None, 0)
-        dev_name = dev.DeviceName
-        dm = win32api.EnumDisplaySettings(dev_name, win32con.ENUM_CURRENT_SETTINGS)
+        try:
+            dev = win32api.EnumDisplayDevices(None, 0)
+            dev_name = dev.DeviceName
+            dm = win32api.EnumDisplaySettings(dev_name, win32con.ENUM_CURRENT_SETTINGS)
 
-        decky.logger.info(f"Get refresh rate: {dm.DisplayFrequency}")
-        self.current_refresh_rate = dm.DisplayFrequency
-        return dm.DisplayFrequency
+            decky.logger.info(f"Get refresh rate: {dm.DisplayFrequency}")
+            return dm.DisplayFrequency
+        except Exception as e:
+            decky.logger.info(f"Can't get refresh rate {e}")
+            return 60
 
     async def set_refresh_rate(self, value: int):
         try:
@@ -1512,13 +1808,20 @@ class Plugin:
 
             if change_result == win32con.DISP_CHANGE_SUCCESSFUL:
                 decky.logger.info(f"Set refresh rate: {value} Hz")
-                self.current_refresh_rate = value
+                self.target_fps = value
             elif change_result == win32con.DISP_CHANGE_RESTART:
                 decky.logger.info(f"Set refresh rate: {value} Hz, but a restart is required.")
             else:
                 decky.logger.info(f"Set refresh rate: Failed to set to {value} Hz. Error code: {change_result}")
         except pywintypes.error as e:
-            decky.logger.error(f"An error occurred: {e}")
+            decky.logger.error(f"Can't set refresh rate {e}")
+        
+    async def get_target_fps(self):
+        return self.target_fps
+    
+    async def set_target_fps(self, value: int):        
+        self.target_fps = value
+        decky.logger.info(f"Set target fps: {value}")
 
     async def get_turbo_boost(self):
         si = subprocess.STARTUPINFO()
@@ -1673,10 +1976,13 @@ class Plugin:
         self.SYSTEM_LOOP = timestamp
         while self.SYSTEM_LOOP == timestamp:
             hwnd, process_id, name, exe, title = get_active_window()
-            current_fps, found_process_id = await self.get_fps(process_id)
+            current_fps, found_process_id, found_app_name = await self.get_fps(process_id)
             cpu_clock, cpu_effective_clock, cpu_usage, gpu_clock, gpu_effective_clock, gpu_usage = await self.get_hwinfo_sensors()
+            lossless_scaling_running = await self.is_lossless_scaling_running()
             # decky.logger.info(f"System Statistics fps: {fps} cpu_clock: {cpu_clock} gpu_clock: {gpu_clock} cpu_usage: {cpu_usage} gpu_usage: {gpu_usage}")
-            await decky.emit("sytem_statistics_event", current_fps, cpu_clock, cpu_usage, gpu_clock, gpu_usage)
+            await decky.emit("sytem_statistics_event", current_fps, cpu_clock, cpu_usage, gpu_clock, gpu_usage, lossless_scaling_running)
+            self.current_game_path = found_app_name
+            self.current_game_name = find_game_name_from_path(found_app_name)
 
             if self.auto_tdp:
                 if current_fps == 0:
@@ -1701,11 +2007,11 @@ class Plugin:
                         average_fps = self.find_recorded_fps(current_tdp)
                         super_well = False
                         super_well_text = ""
-                        if average_fps >= self.current_refresh_rate - 1:
+                        if average_fps >= self.target_fps - 1:
                             # self.clear_lower_tdp(current_tdp)
                             super_well_text = "super "
                             super_well = True
-                        if average_fps >= round(self.current_refresh_rate * self.GOOD_RATIO): # if already at good FPS, we can decrease the TDP.
+                        if average_fps >= round(self.target_fps * self.GOOD_RATIO): # if already at good FPS, we can decrease the TDP.
                             if current_tdp <= self.MIN_TDP: # if already at lowest TDP, no need to do anything.
                                 decky.logger.info(f"[{self.SYSTEM_LOOP}] Average FPS is {average_fps} at {current_tdp}W (CPU: {cpu_clock}Mhz {cpu_usage}%, GPU: {gpu_clock}Mhz {gpu_usage}%) but already running at min TDP {self.MIN_TDP}W, no need to adjust.")
                             else:
@@ -1713,7 +2019,7 @@ class Plugin:
                                 if less_tdp_fps == self.UNKNOWN:
                                     decky.logger.info(f"[{self.SYSTEM_LOOP}] Running {super_well_text}well ({average_fps}) at {current_tdp}W (CPU: {cpu_clock}Mhz {cpu_usage}%, GPU: {gpu_clock}Mhz {gpu_usage}%), trying to decrease TDP to {current_tdp - 1}W.")
                                     await self.set_tdp_limit(current_tdp - 1)
-                                elif less_tdp_fps < round(self.current_refresh_rate * self.BAD_RATIO):
+                                elif less_tdp_fps < round(self.target_fps * self.BAD_RATIO):
                                     if super_well:
                                         decky.logger.info(f"[{self.SYSTEM_LOOP}] Running {super_well_text}well ({average_fps}) at {current_tdp}W (CPU: {cpu_clock}Mhz {cpu_usage}%, GPU: {gpu_clock}Mhz {gpu_usage}%), decrease TDP will affect performance but let's try.")
                                         await self.set_tdp_limit(current_tdp - 1)
@@ -1736,11 +2042,11 @@ class Plugin:
                     await asyncio.sleep(1)
                 else:
                     if self.NO_FPS_COUNT >= self.IDLE_NO_FPS_NUM:
-                        await asyncio.sleep(5)
+                        await asyncio.sleep(2)
                     else:
                         await asyncio.sleep(1)
             else:
-                await asyncio.sleep(5)
+                await asyncio.sleep(3)
 
     async def start_system_loop(self):
         timestamp_now = round(datetime.now().timestamp())
