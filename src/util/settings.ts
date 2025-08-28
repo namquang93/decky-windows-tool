@@ -39,6 +39,7 @@ const set_gpu_scaling = callable<[boolean], void>('set_gpu_scaling');
 const set_scaling_mode = callable<[number], void>('set_scaling_mode');
 const set_integer_scaling = callable<[boolean], void>('set_integer_scaling');
 const set_target_fps = callable<[number], void>('set_target_fps');
+const set_multiple_monitors_mode = callable<[number], void>('set_multiple_monitors_mode')
 
 //@JsonObject()
 export class SystemSetting {
@@ -156,6 +157,9 @@ export class SystemSetting {
   //@JsonProperty()
   public losslessScalingFrameGenPerformance: boolean;
 
+  //@JsonProperty()
+  public multiMonitorMode: number;
+
   constructor() {
     this.volume = 20;
     this.muted = false;
@@ -196,6 +200,7 @@ export class SystemSetting {
     this.losslessScalingFrameGen3Target = 60;
     this.losslessScalingFrameGenFlowScale = 75;
     this.losslessScalingFrameGenPerformance = true;
+    this.multiMonitorMode = 0;
   }
 
   deepCopy(copyTarget: SystemSetting) {
@@ -238,6 +243,7 @@ export class SystemSetting {
     this.losslessScalingFrameGen3Target = copyTarget.losslessScalingFrameGen3Target;
     this.losslessScalingFrameGenFlowScale = copyTarget.losslessScalingFrameGenFlowScale;
     this.losslessScalingFrameGenPerformance = copyTarget.losslessScalingFrameGenPerformance;
+    this.multiMonitorMode = copyTarget.multiMonitorMode;
   }
 }
 
@@ -907,6 +913,23 @@ export class Settings {
   static syncLosslessScalingFrameGenPerformance(frameGenPerformance: boolean) {
     if (this.instance.system.losslessScalingFrameGenPerformance != frameGenPerformance) {
       this.instance.system.losslessScalingFrameGenPerformance = frameGenPerformance;
+    }
+  }
+
+  static getMultiMonitorMode() {
+    return this.instance.system.multiMonitorMode;
+  }
+
+  static syncMultiMonitorMode(mode: number) {
+    if (this.instance.system.multiMonitorMode != mode) {
+      this.instance.system.multiMonitorMode = mode;
+    }
+  }
+
+  static setMultiMonitorMode(mode: number) {
+    if (this.instance.system.multiMonitorMode != mode) {
+      this.instance.system.multiMonitorMode = mode;
+      set_multiple_monitors_mode(mode);
     }
   }
 }

@@ -146,6 +146,15 @@ let losslessScalingDefaultProfile = "Default"
 let addLosslessScalingProfileFunc = callable<[string, string], boolean>('add_lossless_scaling_profile');
 let restartLosslessScalingFunc = callable<[], void>('restart_lossless_scaling');
 
+let getNumberOfMonitorsFunc = callable<[], number>("get_num_monitors")
+let getMultipleMonitorsModeFunc = callable<[], number>("get_multiple_monitors_mode")
+let externalMonitorModes = [
+  { data: 0, label: "Built-in Only" },
+  { data: 1, label: "External Only" },
+  { data: 2, label: "Duplicate" },
+  { data: 3, label: "Extend" },
+];
+
 function Content() {
   // start_syncing_ryzen();
 
@@ -193,6 +202,8 @@ function Content() {
   const [frameGen3Target, setFrameGen3Target] = useState<number>(Settings.getLosslessScalingFrameGen3Target());
   const [frameGenFlowScale, setFrameGenFlowScale] = useState<number>(Settings.getLosslessScalingFrameGenFlowScale());
   const [frameGenPerformance, setFrameGenPerformance] = useState<boolean>(Settings.getLosslessScalingFrameGenPerformance());
+  const [numberOfMonitors, setNumberOfMonitors] = useState<number>(1);
+  const [multiMonitorMode, setMultiMonitorMode] = useState<number>(Settings.getMultiMonitorMode());
 
   // Listen to HWInfo
   const [fps, setFPS] = useState<number>(0);
@@ -254,6 +265,18 @@ function Content() {
         setMuted(value);
         Settings.syncMuted(value);
       }
+    });
+  }, []);
+
+  useEffect(() => {
+    getNumberOfMonitorsFunc().then((value) => {
+      console.log("[Frontend] Got monitors:", value);
+      setNumberOfMonitors(value);
+    });
+    getMultipleMonitorsModeFunc().then((value) => {
+      console.log("[Frontend] Get multiple monitors mode: ", value);
+      setMultiMonitorMode(value);
+      Settings.syncMultiMonitorMode(value);
     });
   }, []);
 
@@ -459,8 +482,19 @@ function Content() {
       else {
         findLosslessScalingProfileNameFunc(currentGamePath).then((foundProfileName) => {
           if (foundProfileName.length == 0) {
-            console.log("[Frontend] Game at path :", currentGamePath, " is not configured");
-            setIsLosslessScalingConfigured(false);
+            if (losslessScalingProfileNames.includes(currentGameName)) {
+              console.log("[Frontend] Game at path :", currentGamePath, " is not found but game name", currentGameName, " found, set new path");
+              setCurrentGameName(currentGameName);
+              setLosslessScalingProfileName(currentGameName);
+              setIsLosslessScalingConfigured(true);
+              setLosslessScalingProfileByNameFunc(currentGameName, "Path", currentGamePath).then(() => {
+                console.log("[Frontend] Lossless Scaling profile updated Path:", currentGamePath);
+              });
+            }
+            else {
+              console.log("[Frontend] Game at path :", currentGamePath, " is not found but game name", currentGameName, " not found neither");
+              setIsLosslessScalingConfigured(false);
+            }
           }
           else {
             console.log("[Frontend] Game at path :", currentGamePath, " is configured");
@@ -581,6 +615,27 @@ function Content() {
         >
         </DropdownItem>
       </PanelSectionRow>
+      {
+        numberOfMonitors == 2 ? 
+        (
+          <DropdownItem
+            label={"External Monitor"}
+            selectedOption={externalMonitorModes.findIndex(mode => mode.data == multiMonitorMode)}
+            rgOptions={externalMonitorModes.map(mode => ({
+              data: mode.data,
+              label: mode.label
+            })) as DropdownOption[]}
+            onChange={(option) => {
+              console.log("[Frontend] Monitor mode:", option.data);
+              setMultiMonitorMode(option.data);
+              Settings.setMultiMonitorMode(option.data);
+            }}
+          >
+          </DropdownItem>
+        )
+        :
+        null
+      }
     </PanelSection>
   ];
 
@@ -650,7 +705,7 @@ function Content() {
           label={"Target FPS"}
           showValue={true}
           disabled={!autoTDP}
-          min={20}
+          min={15}
           max={refreshRate}
           value={targetFPS}
           step={1}
