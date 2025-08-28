@@ -1,11 +1,12 @@
 # Decky Windows Tools
 
-![Preview](https://raw.githubusercontent.com/namquang93/decky-windows-tools/refs/heads/main/preview.png "Preview")
+![alt text](preview4.png)
 
 This is a decky plugin specifically implemented for Windows. The main goal is to integrate everything into Steam, to mimic SteamOS functionalities.
 
 Current basic functions:
- - Adjust Volume.
- - Adjust Brightness.
+ - Adjust Volume, Brightness, Refresh Rate, Multi-Monitor Modes.
  - Adjust RTSS OSD.
- - Limit TDP
+ - Limit TDP.
+ - AMD settings.
+ - Lossless Scaling profiles.
