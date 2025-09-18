@@ -51,7 +51,6 @@ Settings.syncOSDSize(await getOSDSizeFunc());
 // Max TDP
 let getTDPLimitFunc = callable<[boolean], number>('get_tdp_limit')
 Settings.syncTDPLimit(await getTDPLimitFunc(true));
-// const start_syncing_ryzen = callable<[], void>("start_syncing_ryzen");
 
 let getRefreshRatesFunc = callable<[], number[]>('get_refresh_rates');
 let refreshRates: number[] = await getRefreshRatesFunc();
@@ -78,6 +77,9 @@ Settings.setShouldLimitGPUClock(false);
 
 const startSystemLoopFunc = callable<[], void>('start_system_loop');
 await startSystemLoopFunc()
+
+const startOsdLoopFunc = callable<[], void>('start_osd_loop');
+await startOsdLoopFunc()
 
 let minTDP = await callable<[], number>('get_min_tdp')();
 let maxTDP = await callable<[], number>('get_max_tdp')();
@@ -156,8 +158,6 @@ let externalMonitorModes = [
 ];
 
 function Content() {
-  // start_syncing_ryzen();
-
   const [volume, setVolume] = useState<number>(Settings.getVolume());
   const [muted, setMuted] = useState<boolean>(Settings.getMuted());
   const [brightness, setBrightness] = useState<number>(Settings.getBrightness());
@@ -205,13 +205,6 @@ function Content() {
   const [numberOfMonitors, setNumberOfMonitors] = useState<number>(1);
   const [multiMonitorMode, setMultiMonitorMode] = useState<number>(Settings.getMultiMonitorMode());
 
-  // Listen to HWInfo
-  const [fps, setFPS] = useState<number>(0);
-  const [fpsRatio, setFPSRatio] = useState<number>(fps * 100.0);
-  const [cpuClock, setCPUClock] = useState<number>(1000);
-  const [cpuUsage, setCPUUsage] = useState<number>(50);
-  const [gpuClock, setGPUClock] = useState<number>(500);
-  const [gpuUsage, setGPUUsage] = useState<number>(50);
   function changeLosslessScalingState(losslessScalingRunning: boolean) {
     if (losslessScalingRunning) {
       setLosslessScalingState(LosslessScalingRunState.Running);
@@ -230,43 +223,44 @@ function Content() {
   };
   function onSystemStatistics(newFPS: number, newCPUClock: number, newCPUUsage: number, newGPUClock: number, newGPUUsage: number, losslessScalingRunning: boolean) {
     console.log("[Frontend] newFPS: ", newFPS, " newCPUClock: ", newCPUClock, " newGPUClock: ", newGPUClock, " new CPUUsage: ", newCPUUsage, " newGPUUsage; ", newGPUUsage);
-    setFPS(newFPS);
-    setFPSRatio(newFPS * 100.0 / 60)
-    setCPUClock(newCPUClock);
-    setCPUUsage(newCPUUsage);
-    setGPUClock(newGPUClock);
-    setGPUUsage(newGPUUsage);
     changeLosslessScalingState(losslessScalingRunning);
   };
 
   useEffect(() => {
-    addEventListener('sytem_statistics_event', onSystemStatistics);
+    addEventListener('system_statistics_event', onSystemStatistics);
     return () => {
-      removeEventListener('sytem_statistics_event', onSystemStatistics);
+      removeEventListener('system_statistics_event', onSystemStatistics);
     }
   }, []);
 
-  let userChangedVolume = false;
+  const [cancelSyncVolume, setCancelSyncVolume] = useState<boolean>(false);
   useEffect(() => {
+    let syncVolume = true;
     getVolumeFunc().then((value) => {
       console.log("[Frontend] Got volume value:", value);
-      if (!userChangedVolume) {
+      if (syncVolume) {
         setVolume(value);
         Settings.syncVolume(value);
       }
     });
-  }, []);
+    return () => { syncVolume = false;}
+  }, [cancelSyncVolume]);
 
-  let userChangedMuted = false;
+  const [cancelSyncMuted, setCancelSyncMuted] = useState<boolean>(false);
   useEffect(() => {
+    let syncMuted = true;
     getMutedFunc().then((value) => {
-      console.log("[Frontend] Got muted value:", value);
-      if (!userChangedMuted) {
+      if (syncMuted) {
+        console.log("[Frontend] Got muted value:", value, "user not changed so update");
         setMuted(value);
         Settings.syncMuted(value);
       }
+      else {
+        console.log("[Frontend] Got muted value:", value, "user changed so not update");
+      }
     });
-  }, []);
+    return () => { syncMuted = false; }
+  }, [cancelSyncMuted]);
 
   useEffect(() => {
     getNumberOfMonitorsFunc().then((value) => {
@@ -280,38 +274,44 @@ function Content() {
     });
   }, []);
 
-  let userChangedBrightness = false;
+  const [cancelSyncBrightness, setCancelSyncBrightness] = useState<boolean>(false);
   useEffect(() => {
+    let syncBrightness = true;
     getBrightnessFunc().then((value) => {
-      if (!userChangedBrightness) {
+      if (syncBrightness) {
         console.log("[Frontend] Got brightness value:", value);
         setBrightness(value);
         Settings.syncBrightness(value);
       }
     });
-  }, []);
+    return () => { syncBrightness = false; }
+  }, [cancelSyncBrightness]);
 
-  let userChangedOSD = false;
+  const [cancelSyncOSD, setCancelSyncOSD] = useState<boolean>(false);
   useEffect(() => {
+    let syncOSD = true;
     getOSDFunc().then((value) => {
-      if (!userChangedOSD) {
+      if (syncOSD) {
         console.log("[Frontend] Got OSD value:", value);
         setOSD(value);
         Settings.syncOSD(value);
       }
     });
-  }, []);
+    return () => { syncOSD = false; }
+  }, [cancelSyncOSD]);
 
-  let userChangedOSDSize = false;
+  const [cancelSyncOSDSize, setCancelSyncOSDSize] = useState<boolean>(false);
   useEffect(() => {
+    let syncOSDSize = true;
     getOSDSizeFunc().then((value) => {
-      if (!userChangedOSDSize) {
+      if (syncOSDSize) {
         console.log("[Frontend] Got OSD size value:", value);
         setOSDSize(value);
         Settings.syncOSDSize(value);
       }
     });
-  }, []);
+    return () => { syncOSDSize = false; }
+  }, [cancelSyncOSDSize]);
 
   let userChangedMaxTDP = false;
   useEffect(() => {
@@ -565,7 +565,7 @@ function Content() {
           value={volume}
           step={1}
           onChange={(value: number) => {
-            userChangedVolume = true;
+            setCancelSyncVolume(true);
             console.log("[Frontend] Volume changed to:", value);
             setVolume(value);
             Settings.setVolume(value);
@@ -576,7 +576,7 @@ function Content() {
           checked={muted}
           highlightOnFocus={true}
           onChange={(value: boolean) => {
-            userChangedMuted = true;
+            setCancelSyncMuted(true);
             console.log("[Frontend] Mute changed to:", value);
             setMuted(value);
             Settings.setMuted(value);
@@ -592,7 +592,7 @@ function Content() {
           value={brightness}
           step={10}
           onChange={(value: number) => {
-            userChangedBrightness = true;
+            setCancelSyncBrightness(true);
             console.log("[Frontend] Brightness changed to:", value);
             setBrightness(value);
             Settings.setBrightness(value);
@@ -657,7 +657,7 @@ function Content() {
           value={osd}
           step={1}
           onChange={(value: number) => {
-            userChangedOSD = true;
+            setCancelSyncOSD(true);
             console.log("[Frontend] OSD changed to:", value);
             setOSD(value);
             Settings.setOSD(value);
@@ -671,7 +671,7 @@ function Content() {
           value={osdSize}
           step={1}
           onChange={(value: number) => {
-            userChangedOSDSize = true;
+            setCancelSyncOSDSize(true);
             console.log("[Frontend] OSD size changed to:", value);
             setOSDSize(value);
             Settings.setOSDSize(value);
@@ -1371,39 +1371,6 @@ function Content() {
     </PanelSection>);
   }
 
-  sections.push(<PanelSection title="Monitoring">
-      <PanelSectionRow>
-        <ProgressBarWithInfo
-          label={"CPU"}
-          indeterminate={false}
-          nProgress={cpuUsage}
-          focusable={true}
-          sOperationText={cpuClock + " Mhz"}
-          >
-        </ProgressBarWithInfo>
-      </PanelSectionRow>
-      <PanelSectionRow>
-        <ProgressBarWithInfo
-          label={"GPU"}
-          indeterminate={false}
-          nProgress={gpuUsage}
-          focusable={true}
-          sOperationText={gpuClock + " Mhz"}
-          >
-        </ProgressBarWithInfo>
-      </PanelSectionRow>
-      <PanelSectionRow>
-        <ProgressBarWithInfo
-          label={"FPS"}
-          indeterminate={false}
-          nProgress={fpsRatio}
-          focusable={true}
-          sOperationText={Math.round(fps) + " FPS"}
-          >
-        </ProgressBarWithInfo>
-      </PanelSectionRow>
-    </PanelSection>);
-
   return sections;
 };
 
@@ -1413,18 +1380,6 @@ export default definePlugin(() => {
   // serverApi.routerHook.addRoute("/decky-plugin-test", DeckyPluginRouterTest, {
   //   exact: true,
   // });
-
-  // Add an event listener to the "timer_event" event from the backend
-  const listener = addEventListener<[
-    tdp_name: string,
-    tdp_value: boolean
-  ]>("tdp_event", (tdp_name, tdp_value) => {
-    console.log("tdp_event with:", tdp_name, tdp_value)
-    toaster.toast({
-      title: "got tdp_event",
-      body: `${tdp_name}, ${tdp_value}`
-    });
-  });
 
   return {
     // The name shown in various decky menus
@@ -1438,7 +1393,6 @@ export default definePlugin(() => {
     // The function triggered when your plugin unloads
     onDismount() {
       console.log("Unloading")
-      removeEventListener("tdp_event", listener);
       // serverApi.routerHook.removeRoute("/decky-plugin-test");
     },
   };

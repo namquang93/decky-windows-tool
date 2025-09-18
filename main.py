@@ -52,8 +52,9 @@ from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 import xml2.etree.ElementTree as ET
 from enum import Enum
-# from overlay_editor_client import OverlayEditorClient
 from asyncio import Task
+from HardwareMonitor.Hardware import *
+from HardwareMonitor.Util import SensorValueToString, HardwareTypeString
 
 ryzenadj_lib_path = os.path.dirname(os.path.abspath(__file__))
 os.chdir(ryzenadj_lib_path)
@@ -422,9 +423,10 @@ async def setup_hwinfo():
     hwinfo_sensors_f_other5_key.Close()
 
     if restart_hwinfo:
-        restart_process("HWiNFO64.EXE")
+        await restart_process("HWiNFO64.EXE")
     elif not is_process_running("HWiNFO64.EXE"):
-        await start_process("C:\Program Files\HWiNFO64\HWiNFO64.EXE")
+        decky.logger.info("[HWInfo] Correctly configred but not running. Make sure to set it auto start with Windows.")
+        # await start_process("C:\Program Files\HWiNFO64\HWiNFO64.EXE")
     else:
         decky.logger.info("[HWInfo] Correctly configred, no need to restart. It's running already")
 
@@ -517,6 +519,20 @@ lossless_scaling_lsfg2_modes = {
     "X4": 1,
 }
 
+class UpdateVisitor(IVisitor):
+    __namespace__ = "TestHardwareMonitor"  # must be unique among implementations of the IVisitor interface
+    def VisitComputer(self, computer: IComputer):
+        computer.Traverse(self);
+
+    def VisitHardware(self, hardware: IHardware):
+        hardware.Update()
+        for subHardware in hardware.SubHardware:
+            subHardware.Update()
+
+    def VisitParameter(self, parameter: IParameter): pass
+
+    def VisitSensor(self, sensor: ISensor): pass
+
 class TDP:
     tdp: int
     fps: list[int]
@@ -531,7 +547,7 @@ class TDP:
 class Plugin:
     auto_tdp: bool = False
     tdps: list[TDP] = []
-    target_fps: int = 60
+    fps_offset: int = 0 # target FPS = current refresh rate - fps_offset
 
     # FPS values
     UNKNOWN: int = -1
@@ -542,20 +558,24 @@ class Plugin:
     # TDP values
     MIN_TDP: int = 4
     MAX_TDP: int = 32
-    AVERAGE_TDP: int = 18
+    AVERAGE_TDP: int = 12
 
     # Misc
     SYSTEM_LOOP: int = 0
     system_loop_task: Task = None
+    OSD_LOOP: int = 0
+    osd_loop_task: Task = None
     NO_FPS_COUNT: int = 0
     IDLE_NO_FPS_NUM: int = 3
+
+    # Hardware Monitor
+    computer: Computer = None
 
     # RTSS
     rtss_lib: CDLL
     rtss_overlay_lib: CDLL
     rtss_osd_visible_flag: int
-    rtss_overlay_config_path: str
-    # overlay_client: OverlayEditorClient
+    rtss_osd_level: int = 0
 
     # ADLX
     adlxHelper: ADLX.ADLXHelper = None
@@ -583,7 +603,6 @@ class Plugin:
         winreg.CloseKey(rtss_key)
         self.rtss_lib = cdll.LoadLibrary(os.path.join(rtss_install_dir, "RTSSHooks64.dll"))
         self.rtss_osd_visible_flag = 1
-        self.rtss_overlay_config_path = os.path.join(rtss_install_dir, "Plugins", "Client", "OverlayEditor.cfg")
         rtss_hotkey_config_path = os.path.join(rtss_install_dir, "Plugins", "Client", "HotkeyHandler.cfg")
         # Create file if it doesn't exist
         if not os.path.exists(rtss_hotkey_config_path):
@@ -650,15 +669,13 @@ class Plugin:
         
         with open(rtss_hotkey_config_path, 'w') as f:
             f.writelines(lines)
-
-        # self.overlay_client = OverlayEditorClient()
-        # self.overlay_client.post_overlay_message("Load", "", "level_1.ovl")
+        
         if need_restart_rtss:
             decky.logger.info("Restarting RTSS")
-            restart_process("RTSS.exe")
+            await restart_process("RTSS.exe")
         elif not is_process_running("RTSS.exe"):
-            decky.logger.info("RTSS is not running, starting it")
-            await start_process(os.path.join(rtss_install_dir, "RTSS.exe"))
+            decky.logger.info("RTSS is not running. Make sure to set it auto start with Windows.")
+            # await start_process(os.path.join(rtss_install_dir, "RTSS.exe"))
         else:
             decky.logger.info("RTSS correctly configured and is running")
 
@@ -727,6 +744,20 @@ class Plugin:
         rtss_update_profile_func = self.rtss_lib.__getattr__("UpdateProfiles")
         rtss_update_profile_func.argtypes = []
         rtss_update_profile_func()
+
+    async def setup_hardware_monitor(self):
+        decky.logger.info("Setting up hardware monitor...")
+        self.computer = Computer()  # settings can not be passed as constructor argument (following below)
+        self.computer.IsMotherboardEnabled = True
+        self.computer.IsControllerEnabled = True
+        self.computer.IsCpuEnabled = True
+        self.computer.IsGpuEnabled = True
+        self.computer.IsBatteryEnabled = True
+        self.computer.IsMemoryEnabled = True
+        self.computer.IsNetworkEnabled = True
+        self.computer.IsStorageEnabled = True
+
+        self.computer.Open()
 
     async def is_lossless_scaling_running(self):
         lossless_scaling_process = find_process_by_name(self.LOSSLESS_SCALING_NAME)
@@ -1043,11 +1074,11 @@ class Plugin:
         disList = displayService.GetDisplays()
         if disList is None or len(disList) == 0:
             decky.logger.info("No displays found")
-            return False
+            return
         gpu = disList[0].GetGPU()
         if gpu is None:
             decky.logger.info("No GPU found for the first display")
-            return False
+            return
         threeDSettingsServices = system.Get3DSettingsServices()
         antiLag = threeDSettingsServices.GetAntiLag(gpu)
         antiLag.SetEnabled(enabled)
@@ -1076,11 +1107,11 @@ class Plugin:
         disList = displayService.GetDisplays()
         if disList is None or len(disList) == 0:
             decky.logger.info("No displays found")
-            return False
+            return
         gpu = disList[0].GetGPU()
         if gpu is None:
             decky.logger.info("No GPU found for the first display")
-            return False
+            return
         threeDSettingsServices = system.Get3DSettingsServices()
         boost = threeDSettingsServices.GetBoost(gpu)
         boost.SetEnabled(enabled)
@@ -1109,11 +1140,11 @@ class Plugin:
         disList = displayService.GetDisplays()
         if disList is None or len(disList) == 0:
             decky.logger.info("No displays found")
-            return False
+            return
         gpu = disList[0].GetGPU()
         if gpu is None:
             decky.logger.info("No GPU found for the first display")
-            return False
+            return
         threeDSettingsServices = system.Get3DSettingsServices()
         chill = threeDSettingsServices.GetChill(gpu)
         chill.SetEnabled(enabled)
@@ -1125,11 +1156,11 @@ class Plugin:
         disList = displayService.GetDisplays()
         if disList is None or len(disList) == 0:
             decky.logger.info("No displays found")
-            return False
+            return 60
         gpu = disList[0].GetGPU()
         if gpu is None:
             decky.logger.info("No GPU found for the first display")
-            return False
+            return 60
         threeDSettingsServices = system.Get3DSettingsServices()
         chill = threeDSettingsServices.GetChill(gpu)
         min_fps = chill.GetMinFPS()
@@ -1142,11 +1173,11 @@ class Plugin:
         disList = displayService.GetDisplays()
         if disList is None or len(disList) == 0:
             decky.logger.info("No displays found")
-            return False
+            return
         gpu = disList[0].GetGPU()
         if gpu is None:
             decky.logger.info("No GPU found for the first display")
-            return False
+            return
         threeDSettingsServices = system.Get3DSettingsServices()
         chill = threeDSettingsServices.GetChill(gpu)
         chill.SetMinFPS(min_fps)
@@ -1158,11 +1189,11 @@ class Plugin:
         disList = displayService.GetDisplays()
         if disList is None or len(disList) == 0:
             decky.logger.info("No displays found")
-            return False
+            return 60
         gpu = disList[0].GetGPU()
         if gpu is None:
             decky.logger.info("No GPU found for the first display")
-            return False
+            return 60
         threeDSettingsServices = system.Get3DSettingsServices()
         chill = threeDSettingsServices.GetChill(gpu)
         max_fps = chill.GetMaxFPS()
@@ -1175,11 +1206,11 @@ class Plugin:
         disList = displayService.GetDisplays()
         if disList is None or len(disList) == 0:
             decky.logger.info("No displays found")
-            return False
+            return
         gpu = disList[0].GetGPU()
         if gpu is None:
             decky.logger.info("No GPU found for the first display")
-            return False
+            return
         threeDSettingsServices = system.Get3DSettingsServices()
         chill = threeDSettingsServices.GetChill(gpu)
         chill.SetMaxFPS(max_fps)
@@ -1207,11 +1238,11 @@ class Plugin:
         disList = displayService.GetDisplays()
         if disList is None or len(disList) == 0:
             decky.logger.info("Set GPU Scaling: No displays found")
-            return False
+            return
         display = disList[0]
         if display is None:
             decky.logger.info("Set GPU Scaling: No display found???")
-            return False
+            return
         gpuScaling = displayService.GetGPUScaling(display)
         decky.logger.info(f"Set GPU Scaling: {enabled}")
         gpuScaling.SetEnabled(enabled)
@@ -1222,11 +1253,11 @@ class Plugin:
         disList = displayService.GetDisplays()
         if disList is None or len(disList) == 0:
             decky.logger.info("No displays found")
-            return False
+            return 0
         display = disList[0]
         if display is None:
             decky.logger.info("No display found???")
-            return False
+            return 0
         scalingMode = displayService.GetScalingMode(display)
         mode = scalingMode.GetMode()
         decky.logger.info("Current scaling mode: {}".format(mode))
@@ -1246,11 +1277,11 @@ class Plugin:
         disList = displayService.GetDisplays()
         if disList is None or len(disList) == 0:
             decky.logger.info("No displays found")
-            return False
+            return
         display = disList[0]
         if display is None:
             decky.logger.info("No display found???")
-            return False
+            return
         scalingMode = displayService.GetScalingMode(display)
         if mode == 0:
             decky.logger.info("Set Scaling Mode: PRESERVE_ASPECT_RATIO")
@@ -1269,11 +1300,11 @@ class Plugin:
         displayService = system.GetDisplaysServices()
         disList = displayService.GetDisplays()
         if disList is None or len(disList) == 0:
-            decky.logger.info("No displays found")
+            decky.logger.info("Get Integer Scaling: No displays found")
             return False
         display = disList[0]
         if display is None:
-            decky.logger.info("No display found???")
+            decky.logger.info("Get Integer Scaling: No display found???")
             return False
         integerScaling = displayService.GetIntegerScaling(display)
         enabled = integerScaling.IsEnabled()
@@ -1286,11 +1317,11 @@ class Plugin:
         disList = displayService.GetDisplays()
         if disList is None or len(disList) == 0:
             decky.logger.info("No displays found")
-            return False
+            return
         display = disList[0]
         if display is None:
             decky.logger.info("No display found???")
-            return False
+            return
         integerScaling = displayService.GetIntegerScaling(display)
         integerScaling.SetEnabled(enabled)
         decky.logger.info(f"Set Integer Scaling: {enabled}")
@@ -1363,10 +1394,8 @@ class Plugin:
     
     async def set_auto_tdp(self, enable_auto_tdp):
         self.auto_tdp = enable_auto_tdp
-
-    async def get_fps(self, process_id):
-        black_list_apps = ["rustdesk", "anydesk", "parsec"]
-        global last_dwTime0
+    
+    async def read_rtss_shared_memory(self):
         # Map shared memory
         mmap_size = 4485160
         mm = mmap.mmap(0, mmap_size, 'RTSSSharedMemoryV2')
@@ -1386,7 +1415,15 @@ class Plugin:
         # Validate signature & version
         if dwSignature[::-1] not in (b'RTSS', b'SSTR') or dwVersion < 0x00020000:
             decky.logger.info(f'Invalid RTSS signature/version: {dwSignature} / {dwVersion:x}')
-            return None
+            return None, None, None, None, None, None, None, None, None, None
+        
+        return mm, dwSignature, dwVersion, dwAppEntrySize, dwAppArrOffset, dwAppArrSize, dwOSDEntrySize, dwOSDArrOffset, dwOSDArrSize, dwOSDFrame
+
+    async def get_fps(self, process_id):
+        black_list_apps = ["rustdesk", "anydesk", "parsec", "unrealeditor"]
+        global last_dwTime0
+        
+        mm, dwSignature, dwVersion, dwAppEntrySize, dwAppArrOffset, dwAppArrSize, dwOSDEntrySize, dwOSDArrOffset, dwOSDArrSize, dwOSDFrame = await self.read_rtss_shared_memory()
         
         # decky.logger.info(f'RTSS Shared Memory: Signature={dwSignature} Version={dwVersion:x} AppEntrySize={dwAppEntrySize} AppArrOffset={dwAppArrOffset} AppArrSize={dwAppArrSize} OSDEntrySize={dwOSDEntrySize} OSDArrOffset={dwOSDArrOffset} OSDArrSize={dwOSDArrSize} OSDFrame={dwOSDFrame}')
     
@@ -1426,23 +1463,119 @@ class Plugin:
                         highest_app_name = raw_app_name
                     decky.logger.info(f'[FPS] {raw_app_name} {"ForegroundWindow" if found else "NotForegroundWindow"} ({pid}): {app_fps:.1f}')
                     last_dwTime0s[pid] = t0
-    
-        # --- GPU clock from OSD entries ---
-        # for i in range(dwOSDArrSize):
-        #     off = dwOSDArrOffset + i * dwOSDEntrySize
-        #     stump = mm[off:off + 256 + 256 + 4096]
-        #     if len(stump) < struct.calcsize('256s256s4096s'):
-        #         decky.logger.info(f'[GPU] OSD entry {i} too short: {len(stump)} bytes')
-        #         continue
-        #     osd, osdOwner, osdEx = struct.unpack('256s256s4096s', stump)
-            
-        #     decky.logger.info(f'[GPU] OSD entry: osd="{osd}" osdOwner={osdOwner} osdEx="{osdEx[:60]}"')
         
         # decky.logger.info(f"Get FPS: {fps} from {app_name} in {dwAppArrSize} apps")
         if found_fps > 0:
             return round(found_fps), process_id, found_app_name
         else:
             return round(highest_fps), highest_app_process_id, highest_app_name
+        
+    async def update_osd(self):
+        mm, dwSignature, dwVersion, dwAppEntrySize, dwAppArrOffset, dwAppArrSize, dwOSDEntrySize, dwOSDArrOffset, dwOSDArrSize, dwOSDFrame = await self.read_rtss_shared_memory()
+        params = '256s256s4096s'
+        size = struct.calcsize(params)
+        if self.rtss_osd_level == 0:
+            # decky.logger.info("RTSS OSD level is 0, clear OSD and return")
+            for i in range(dwOSDArrSize):
+                off = dwOSDArrOffset + i * dwOSDEntrySize
+                
+                stump = mm[off:off + size]
+                if len(stump) < struct.calcsize(params):
+                    decky.logger.info(f'[GPU] OSD entry {i} too short: {len(stump)} bytes')
+                    continue
+                osd, osdOwner, osdEx = struct.unpack(params, stump)
+            
+                if osdOwner != b'RTSSSharedMemorySample':
+                    mm[off:off + size] = bytes(size)  # zero-fill slice
+            return
+
+        battery_level = 100.0
+        battery_rate = 0.0
+        battery_remaining = 0.0
+        cpu_power = 0.0
+        gpu_power = 0.0
+        cpu_usage = 0.0
+        gpu_usage = 0.0
+        cpu_total_clock = 0.0
+        cpu_count = 0
+        gpu_clock = 0.0
+        memory_used = 0.0
+        memory_usage = 0.0
+
+        self.computer.Accept(UpdateVisitor())
+        for hardware in self.computer.Hardware:
+                # decky.logger.info(f"Hardware: {hardware.Name} type {HardwareTypeString[hardware.HardwareType]}")
+                # for subhardware in hardware.SubHardware:
+                #     decky.logger.info(f"\tSubhardware: {subhardware.Name}")
+                #     for sensor in subhardware.Sensors:
+                #         decky.logger.info(f"\t\tSensor: {sensor.Name}, value: {SensorValueToString(sensor.Value, sensor.SensorType)}")
+                for sensor in hardware.Sensors:
+                    if sensor.Name.lower() == "charge level":
+                        battery_level = sensor.Value
+                    
+                    if "discharge rate" in sensor.Name.lower() or "charge rate" in sensor.Name.lower():
+                        battery_rate = sensor.Value
+                    
+                    if "remaining time" in sensor.Name.lower():
+                        battery_remaining = sensor.Value
+
+                    if sensor.Name.lower() == "cpu total":
+                        cpu_usage = sensor.Value
+                    
+                    if hardware.HardwareType == HardwareType.Cpu and "package" in sensor.Name.lower():
+                        cpu_power = sensor.Value
+                    
+                    if hardware.HardwareType == HardwareType.Cpu and sensor.SensorType == SensorType.Clock and "core" in sensor.Name.lower():
+                        cpu_total_clock += sensor.Value
+                        cpu_count += 1
+                    
+                    if (hardware.HardwareType == HardwareType.GpuAmd or hardware.HardwareType == HardwareType.GpuNvidia or hardware.HardwareType == HardwareType.GpuIntel) and "core" in sensor.Name.lower() and sensor.SensorType == SensorType.Clock:
+                        gpu_clock = sensor.Value
+                    
+                    if (hardware.HardwareType == HardwareType.GpuAmd or hardware.HardwareType == HardwareType.GpuNvidia or hardware.HardwareType == HardwareType.GpuIntel) and "gpu core" in sensor.Name.lower() and sensor.SensorType == SensorType.Load:
+                        gpu_usage = sensor.Value
+                    
+                    if (hardware.HardwareType == HardwareType.GpuAmd or hardware.HardwareType == HardwareType.GpuNvidia or hardware.HardwareType == HardwareType.GpuIntel) and "package" in sensor.Name.lower():
+                        gpu_power = sensor.Value
+                    
+                    if hardware.HardwareType == HardwareType.Memory and "virtual" not in sensor.Name.lower() and sensor.SensorType == SensorType.Load:
+                        memory_usage = sensor.Value
+                    
+                    if hardware.HardwareType == HardwareType.Memory and "virtual" not in sensor.Name.lower() and "used" in sensor.Name.lower() and sensor.SensorType == SensorType.Data:
+                        memory_used = sensor.Value
+                    
+                    if sensor.Name.lower() == "gpu usage":
+                        gpu_usage = sensor.Value
+                    # decky.logger.info(f"\tSensor: {sensor.Name}, value: {SensorValueToString(sensor.Value, sensor.SensorType)}")
+
+        osd_format_string = b'<P=0,0><L0><C=80000000><B=0,0>\b<C>'
+
+        if self.rtss_osd_level >= 2:
+            if battery_remaining > 0.0:
+                hours = int(battery_remaining) // 3600
+                minutes = (int(battery_remaining) % 3600) // 60
+                osd_format_string += f'<C=CD7F32>BATTERY<C> <C=FFFFFF>{battery_level:.0f}<S=50> %<S> {battery_rate:.1f}<S=50> W<S> {hours:d}:{minutes:02d}<C> <C=6E006A>|<C> '.encode('utf-8')
+            else:
+                osd_format_string += f'<C=CD7F32>BATTERY<C> <C=FFFFFF>{battery_level:.0f}<S=50> %<S> {battery_rate:.1f}<S=50> W<S><C> <C=6E006A>|<C> '.encode('utf-8')
+        
+        if self.rtss_osd_level == 3:
+            osd_format_string += f'<C=097969>CPU<C> <C=FFFFFF>{cpu_usage:.1f}<S=50> %<S> {cpu_power:.1f}<S=50> W<S><C> <C=6E006A>|<C> '.encode('utf-8')
+            osd_format_string += f'<C=00A36C>GPU<C> <C=FFFFFF>{gpu_usage:.1f}<S=50> %<S> {gpu_power:.1f}<S=50> W<S><C> <C=6E006A>|<C> '.encode('utf-8')
+            osd_format_string += f'<C=BF40BF>RAM<C> <C=FFFFFF>{memory_usage:.0f}<S=50> %<S> <C=6E006A>|<C> '.encode('utf-8')
+        elif self.rtss_osd_level == 4:
+            cpu_clock = cpu_total_clock / cpu_count if cpu_count > 0 else 0.0
+            osd_format_string += f'<C=097969>CPU<C> <C=FFFFFF>{cpu_clock:.0f}<S=50> MHz<S> {cpu_usage:.1f}<S=50> %<S> {cpu_power:.1f}<S=50> W<S><C> <C=6E006A>|<C> '.encode('utf-8')
+            osd_format_string += f'<C=00A36C>GPU<C> <C=FFFFFF>{gpu_clock:.0f}<S=50> MHz<S> <C=FFFFFF>{gpu_usage:.1f}<S=50> %<S> {gpu_power:.1f}<S=50> W<S><C> <C=6E006A>|<C> '.encode('utf-8')
+            osd_format_string += f'<C=BF40BF>RAM<C> <C=FFFFFF>{memory_used:.1f}<S=50> GB<S> <C=FFFFFF>{memory_usage:.0f}<S=50> %<S> <C=6E006A>|<C> '.encode('utf-8')
+        
+        if self.rtss_osd_level >= 1:
+            osd_format_string += b'<C=FF0000><APP><C> <C=FFFFFF><FR><S=50> FPS<S><C>'
+        
+        # struct.pack_into(params, mm, dwOSDArrOffset, osd_format_string, b'Decky Windows Tools', b'')
+        struct.pack_into(params, mm, dwOSDArrOffset, b'', b'Decky Windows Tools', osd_format_string)
+        # decky.logger.info(f"Update RTSS OSD: {osd_format_string.decode('utf-8')}")
+        
+        # decky.logger.info(f"Update RTSS OSD level {self.rtss_osd_level}")
     
     # async def get_cpu_clock_old(self):
     #     mmap_size = 44
@@ -1596,19 +1729,13 @@ class Plugin:
     async def add(self, left: int, right: int) -> int:
         return left + right
 
-    async def sync_ryzen(self):
-        await asyncio.sleep(15)
-        # Passing through a bunch of random data, just as an example
-        max_tdp = determine("slow_limit")
-        decky.logger.info(f"Sync TDP: {max_tdp} W")
-        await decky.emit("tdp_event", "max_tdp", max_tdp)
-
     # Asyncio-compatible long-running code, executed in a task when the plugin is loaded
     async def _main(self):
         self.loop = asyncio.get_event_loop()
         await setup_hwinfo()
         await self.setup_rtss()
         await self.init_adlx("_main")
+        await self.setup_hardware_monitor()
         # self.display_demo()
 
     # Function called first during the unload process, utilize this to handle your plugin being stopped, but not
@@ -1624,9 +1751,6 @@ class Plugin:
     async def _uninstall(self):
         decky.logger.info("Goodbye World!")
         pass
-
-    async def start_syncing_ryzen(self):
-        self.loop.create_task(self.sync_ryzen())
 
     # def subprocess_run_hidden(command, **kwargs):
     #     if os.name == 'nt':
@@ -1693,74 +1817,17 @@ class Plugin:
         flags = self.get_flags()
         overlay_enabled = flags & self.rtss_osd_visible_flag
         if overlay_enabled == 0:
-            osd = 0
-        else:
-            if not os.path.exists(self.rtss_overlay_config_path):
-                os.makedirs(os.path.dirname(self.rtss_overlay_config_path), exist_ok=True)
-                open(self.rtss_overlay_config_path, "w").close()  # Create empty file
-            try:
-                found = False
-                with open(self.rtss_overlay_config_path, 'r', encoding='utf-8') as f:
-                    for line in f:
-                        match = re.match(r"\s*Layout=level_(\d+)\.ovl", line)
-                        if match:
-                            found = True
-                            osd = int(match.group(1))
-                            break
-                if not found:
-                    decky.logger.info("Layout line not found in OverlayEditor.cfg, defaulting to 1")
-                    osd = 0
-            except Exception as e:
-                decky.logger.info("Error reading config file:", e)
-                osd = 0
-        
-        decky.logger.info(f"Get osd: {osd} ({overlay_enabled})")
+            self.rtss_osd_level = 0
+        await self.update_osd()
+        decky.logger.info(f"Get osd: {self.rtss_osd_level}")
 
-        return osd
+        return self.rtss_osd_level
     
     async def set_osd(self, value: int):
         enabled = 0 if value == 0 else 1
         self.set_flags(self.rtss_osd_visible_flag, enabled)
-        if value == 1:
-            keyboard.send('ctrl+shift+f1')
-        elif value == 2:
-            keyboard.send('ctrl+shift+f2')
-        elif value == 3:
-            keyboard.send('ctrl+shift+f3')
-        elif value == 4:
-            keyboard.send('ctrl+shift+f4')
-        # self.overlay_client.post_overlay_message("Load", "", f"level_{value}.ovl")
-        
-        # Update the overlay configuration file
-        if not os.path.exists(self.rtss_overlay_config_path):
-            decky.logger.info("OverlayEditor.cfg not found at:", self.rtss_overlay_config_path)
-            with open(self.rtss_overlay_config_path, 'w') as f:
-                pass  # creates an empty file
-        
-        try:
-            # Read all lines from the config file
-            with open(self.rtss_overlay_config_path, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-
-            # Replace the Layout line
-            updated_lines = []
-            layout_found = False
-            for line in lines:
-                if line.strip().startswith("Layout="):
-                    updated_lines.append(f"Layout=level_{value}.ovl\n")
-                    layout_found = True
-                else:
-                    updated_lines.append(line)
-
-            # If Layout line was not found, optionally add it
-            if not layout_found:
-                updated_lines.append(f"Layout=level_{value}.ovl\n")
-
-            # Write back the updated content
-            with open(self.rtss_overlay_config_path, 'w', encoding='utf-8') as f:
-                f.writelines(updated_lines)
-        except Exception as e:
-            decky.logger.info("Error updating config file:", e)
+        self.rtss_osd_level = value
+        await self.update_osd()
         decky.logger.info(f"Set osd: {value}")
 
     async def get_osd_size(self):
@@ -1859,7 +1926,6 @@ class Plugin:
 
             if change_result == win32con.DISP_CHANGE_SUCCESSFUL:
                 decky.logger.info(f"Set refresh rate: {value} Hz")
-                self.target_fps = value
             elif change_result == win32con.DISP_CHANGE_RESTART:
                 decky.logger.info(f"Set refresh rate: {value} Hz, but a restart is required.")
             else:
@@ -1868,10 +1934,12 @@ class Plugin:
             decky.logger.error(f"Can't set refresh rate {e}")
         
     async def get_target_fps(self):
-        return self.target_fps
+        current_refresh_rate = await self.get_refresh_rate()
+        return current_refresh_rate - self.fps_offset
     
-    async def set_target_fps(self, value: int):        
-        self.target_fps = value
+    async def set_target_fps(self, value: int):
+        current_refresh_rate = await self.get_refresh_rate()
+        self.fps_offset = value - current_refresh_rate
         decky.logger.info(f"Set target fps: {value}")
 
     async def get_turbo_boost(self):
@@ -2175,6 +2243,12 @@ class Plugin:
             startupinfo=si
         )
 
+    async def osd_loop(self, timestamp: int):
+        self.OSD_LOOP = timestamp
+        while self.OSD_LOOP == timestamp:
+            await self.update_osd()
+            await asyncio.sleep(0.2)
+
     async def system_loop(self, timestamp: int):
         self.SYSTEM_LOOP = timestamp
         while self.SYSTEM_LOOP == timestamp:
@@ -2183,8 +2257,9 @@ class Plugin:
             cpu_clock, cpu_effective_clock, cpu_usage, gpu_clock, gpu_effective_clock, gpu_usage = await self.get_hwinfo_sensors()
             lossless_scaling_running = await self.is_lossless_scaling_running()
             # decky.logger.info(f"System Statistics fps: {current_fps} cpu_clock: {cpu_clock} gpu_clock: {gpu_clock} cpu_usage: {cpu_usage} gpu_usage: {gpu_usage}")
-            await decky.emit("sytem_statistics_event", current_fps, cpu_clock, cpu_usage, gpu_clock, gpu_usage, lossless_scaling_running)
+            await decky.emit("system_statistics_event", current_fps, cpu_clock, cpu_usage, gpu_clock, gpu_usage, lossless_scaling_running)
             self.current_game_path = found_app_name
+
             found_game_name = find_game_name_from_path(found_app_name)
             if len(found_app_name) > 30:
                 found_game_name = found_game_name[:30]
@@ -2192,8 +2267,9 @@ class Plugin:
                 self.current_game_name = found_game_name
                 if len(self.current_game_name) > 0:
                     decky.logger.info(f"Start playing game {self.current_game_name}")
-
+            
             delay_time_after_changing_tdp = 0
+            
             if self.auto_tdp:
                 if current_fps == 0:
                     if self.NO_FPS_COUNT >= self.IDLE_NO_FPS_NUM:
@@ -2218,11 +2294,12 @@ class Plugin:
                         current_tdp_average_fps, current_tdp_last_update_time = self.find_recorded_fps(current_tdp)
                         super_well = False
                         super_well_text = ""
-                        if current_tdp_average_fps >= self.target_fps - self.BEST_THRESHOLD:
+                        target_fps = await self.get_target_fps()
+                        if current_tdp_average_fps >= target_fps - self.BEST_THRESHOLD:
                             # self.clear_lower_tdp(current_tdp)
                             super_well_text = "super "
                             super_well = True
-                        if current_tdp_average_fps >= self.target_fps - self.GOOD_THRESHOLD: # if already at good FPS, we can decrease the TDP.
+                        if current_tdp_average_fps >= target_fps - self.GOOD_THRESHOLD: # if already at good FPS, we can decrease the TDP.
                             if current_tdp <= self.MIN_TDP: # if already at lowest TDP, no need to do anything.
                                 decky.logger.info(f"[{fps_timestamp}] Average FPS is {current_tdp_average_fps} at {current_tdp}W (CPU: {cpu_clock}Mhz {cpu_usage}%, GPU: {gpu_clock}Mhz {gpu_usage}%) but already running at min TDP {self.MIN_TDP}W, no need to adjust.")
                             else:
@@ -2230,28 +2307,28 @@ class Plugin:
                                 if less_tdp_average_fps == self.UNKNOWN:
                                     decky.logger.info(f"[{fps_timestamp}] Running {super_well_text}well ({current_tdp_average_fps}) at {current_tdp}W (CPU: {cpu_clock}Mhz {cpu_usage}%, GPU: {gpu_clock}Mhz {gpu_usage}%), trying to decrease TDP to {current_tdp - 1}W.")
                                     set_less_tdp_result = await self.set_tdp_limit(current_tdp - 1)
-                                    delay_time_after_changing_tdp = 1 if set_less_tdp_result else 20
-                                elif less_tdp_average_fps < self.target_fps - self.GOOD_THRESHOLD:
+                                    delay_time_after_changing_tdp = 1 if set_less_tdp_result else 10
+                                elif less_tdp_average_fps < target_fps - self.GOOD_THRESHOLD:
                                     if super_well:
-                                        if fps_timestamp - less_tdp_last_update_time >= 30:
+                                        if fps_timestamp - less_tdp_last_update_time >= 10:
                                             decky.logger.info(f"[{fps_timestamp}] Running {super_well_text}well ({current_tdp_average_fps}) at {current_tdp}W (CPU: {cpu_clock}Mhz {cpu_usage}%, GPU: {gpu_clock}Mhz {gpu_usage}%), decrease TDP will affect performance but let's try after waiting for {fps_timestamp - less_tdp_last_update_time} seconds.")
                                             try_set_less_tdp_result = await self.set_tdp_limit(current_tdp - 1)
-                                            delay_time_after_changing_tdp = 1 if try_set_less_tdp_result else 20
+                                            delay_time_after_changing_tdp = 1 if try_set_less_tdp_result else 10
                                         else:
-                                            decky.logger.info(f"[{fps_timestamp}] Running {super_well_text}well ({current_tdp_average_fps}) at {current_tdp}W (CPU: {cpu_clock}Mhz {cpu_usage}%, GPU: {gpu_clock}Mhz {gpu_usage}%), decrease TDP will affect performance, could try after {30 - (fps_timestamp - less_tdp_last_update_time)} seconds.")
+                                            decky.logger.info(f"[{fps_timestamp}] Running {super_well_text}well ({current_tdp_average_fps}) at {current_tdp}W (CPU: {cpu_clock}Mhz {cpu_usage}%, GPU: {gpu_clock}Mhz {gpu_usage}%), decrease TDP will affect performance, could try after {10 - (fps_timestamp - less_tdp_last_update_time)} seconds.")
                                     else:
                                         decky.logger.info(f"[{fps_timestamp}] Running {super_well_text}well ({current_tdp_average_fps}) at {current_tdp}W (CPU: {cpu_clock}Mhz {cpu_usage}%, GPU: {gpu_clock}Mhz {gpu_usage}%), decrease TDP will affect performance. Keep it now.")
                                 else:
                                     decky.logger.info(f"[{fps_timestamp}] Running {super_well_text}well ({current_tdp_average_fps}) at {current_tdp}W (CPU: {cpu_clock}Mhz {cpu_usage}%, GPU: {gpu_clock}Mhz {gpu_usage}%). Trying to decrease TDP to {current_tdp - 1}.")
                                     test_set_less_tdp_result = await self.set_tdp_limit(current_tdp - 1)
-                                    delay_time_after_changing_tdp = 1 if test_set_less_tdp_result else 20
+                                    delay_time_after_changing_tdp = 1 if test_set_less_tdp_result else 10
                         else:
                             if current_tdp >= self.MAX_TDP:
                                 decky.logger.info(f"[{fps_timestamp}] Average FPS is {current_tdp_average_fps} at {current_tdp}W (CPU: {cpu_clock}Mhz {cpu_usage}%, GPU: {gpu_clock}Mhz {gpu_usage}%) but already running at max TDP {self.MAX_TDP}W, can't adjust.")
                             else:
                                 decky.logger.info(f"[{fps_timestamp}] Average FPS is {current_tdp_average_fps} at {current_tdp}W (CPU: {cpu_clock}Mhz {cpu_usage}%, GPU: {gpu_clock}Mhz {gpu_usage}%), trying to increase TDP to {current_tdp + 1}W.")
                                 test_set_more_tdp_result = await self.set_tdp_limit(current_tdp + 1)
-                                delay_time_after_changing_tdp = 1 if test_set_more_tdp_result else 20
+                                delay_time_after_changing_tdp = 1 if test_set_more_tdp_result else 10
             else:
                 decky.logger.info(f"Not adjust TDP. FPS is {current_fps}.")
             
@@ -2280,6 +2357,11 @@ class Plugin:
             self.system_loop_task.cancel()
         decky.logger.info("Stop system loop")
         self.SYSTEM_LOOP = 0
+
+    async def start_osd_loop(self):
+        timestamp_now = round(datetime.now().timestamp())
+        decky.logger.info(f"Start OSD Loop at {timestamp_now}")
+        self.loop.create_task(self.osd_loop(timestamp_now))
 
     async def log_info(self, message: str):
         decky.logger.info(str)
